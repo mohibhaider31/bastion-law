@@ -1,0 +1,34 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+:root {
+  --burgundy: #6B1E2B;
+  --burgundy-dark: #4A141E;
+  --brass: #B68A4E;
+  --brass-light: #C8A15C;
+  --cream: #F6F1EA;
+  --card: #FFFFFF;
+  --board-bg: #E7E5E1;
+  --ink: #241D1C;
+  --ink-secondary: #6E635F;
+  --ink-tertiary: #A89F99;
+  --ink-muted: #8A817B;
+  --border: #ECE4D9;
+  --border-light: #F3EDE3;
+  --rose-tint: #F0E3E1;
+  --rose-bg: #FBF1EE;
+  --amber: #9A6B1E;
+  --amber-bg: #F6ECD8;
+  --green: #3F7A5B;
+  --green-bg: #EAF1EC;
+  --red: #C0392B;
+  --red-bg: #FDF0EE;
+  --sidebar: #1C1512;
+}
+
+body {
+  background: var(--cream);
+  color: var(--ink);
+  font-family: 'Hanken Grotesk', sans-serif;
+}

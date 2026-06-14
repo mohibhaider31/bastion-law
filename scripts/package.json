@@ -1,0 +1,14 @@
+{
+  "name": "bastion-screenshots",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "screenshot": "node screenshot.mjs",
+    "screenshot:web": "node screenshot.mjs --only=web",
+    "screenshot:client": "node screenshot.mjs --only=client",
+    "screenshot:lawyer": "node screenshot.mjs --only=lawyer"
+  },
+  "dependencies": {
+    "playwright": "^1.44.0"
+  }
+}

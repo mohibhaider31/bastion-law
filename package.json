@@ -1,0 +1,22 @@
+{
+  "name": "bastion",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "client": "npm run start --workspace=apps/client-app",
+    "lawyer": "npm run start --workspace=apps/lawyer-app",
+    "web": "npm run dev --workspace=apps/web",
+    "db:push": "supabase db push",
+    "db:types": "supabase gen types typescript --project-id pqqusreplevsdmntvzww > packages/supabase/src/types.ts",
+    "screenshot": "cd scripts && node screenshot.mjs",
+    "screenshot:web": "cd scripts && node screenshot.mjs --only=web",
+    "screenshot:client": "cd scripts && node screenshot.mjs --only=client",
+    "screenshot:lawyer": "cd scripts && node screenshot.mjs --only=lawyer"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
