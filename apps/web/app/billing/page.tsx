@@ -103,6 +103,33 @@ export default function BillingPage() {
       await supabase.functions.invoke('send-push', {
         body: { user_id: form.client_id, title: `New invoice ${ref}`, body: `PKR ${amountPkr} due by ${form.due_date}` },
       }).catch(() => {});
+
+      // Send invoice email to client
+      const clientName = clients.find(c => c.id === form.client_id)?.full_name ?? '';
+      const matterRef  = matters.find(m => m.id === form.matter_id)?.matter_ref ?? '';
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: clientProfile } = await supabase.from('profiles').select('email').eq('id', form.client_id).single();
+      if (clientProfile?.email) {
+        await fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            template_slug: 'invoice',
+            to_email:      clientProfile.email,
+            to_name:       clientName,
+            client_id:     form.client_id,
+            matter_id:     form.matter_id || undefined,
+            sent_by:       user?.id,
+            vars: {
+              client_name: clientName,
+              invoice_ref: ref,
+              matter_ref:  matterRef,
+              amount_pkr:  `PKR ${amountPkr}`,
+              due_date:    form.due_date,
+            },
+          }),
+        }).catch(() => {});
+      }
     }
 
     setSaving(false); setModal(false);

@@ -31,6 +31,25 @@ export async function POST(req: NextRequest) {
       await adminSupabase.from('profiles').update({ full_name, phone: phone || null, role }).eq('id', data.user.id);
     }
 
+    // Send onboarding email to new clients
+    if (role === 'client' && data.user) {
+      await fetch(`${req.nextUrl.origin}/api/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template_slug: 'onboarding',
+          to_email:      email,
+          to_name:       full_name,
+          client_id:     data.user.id,
+          vars: {
+            client_name:  full_name,
+            client_email: email,
+            temp_password: password,
+          },
+        }),
+      }).catch(() => {}); // non-blocking — don't fail user creation if email fails
+    }
+
     return NextResponse.json({ id: data.user?.id });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

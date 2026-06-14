@@ -2,7 +2,18 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { PageShell } from '../dashboard/page';
-import { Shield, ShieldCheck, Trash2, RefreshCw } from 'lucide-react';
+import { Shield, ShieldCheck, Trash2, RefreshCw, Mail, Save } from 'lucide-react';
+
+interface FirmSettingsRow {
+  id: string;
+  from_email: string;
+  from_name: string;
+  reply_to: string | null;
+  logo_url: string | null;
+  primary_color: string;
+  accent_color: string;
+  firm_address: string | null;
+}
 
 interface MFAFactor {
   id: string;
@@ -18,6 +29,10 @@ interface ProfileUser {
 }
 
 export default function SettingsPage() {
+  const [firmSettings, setFirmSettings] = useState<FirmSettingsRow | null>(null);
+  const [savingEmail, setSavingEmail]   = useState(false);
+  const [emailSaved, setEmailSaved]     = useState(false);
+
   const [factors, setFactors] = useState<MFAFactor[]>([]);
   const [enrolling, setEnrolling] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
@@ -29,7 +44,30 @@ export default function SettingsPage() {
   const [users, setUsers] = useState<ProfileUser[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
 
-  useEffect(() => { loadFactors(); loadUsers(); }, []);
+  useEffect(() => { loadFactors(); loadUsers(); loadFirmSettings(); }, []);
+
+  async function loadFirmSettings() {
+    const { data } = await supabase.from('firm_settings').select('*').limit(1).single();
+    if (data) setFirmSettings(data as FirmSettingsRow);
+  }
+
+  async function saveFirmSettings() {
+    if (!firmSettings) return;
+    setSavingEmail(true);
+    await supabase.from('firm_settings').update({
+      from_email:    firmSettings.from_email,
+      from_name:     firmSettings.from_name,
+      reply_to:      firmSettings.reply_to || null,
+      logo_url:      firmSettings.logo_url || null,
+      primary_color: firmSettings.primary_color,
+      accent_color:  firmSettings.accent_color,
+      firm_address:  firmSettings.firm_address || null,
+      updated_at:    new Date().toISOString(),
+    }).eq('id', firmSettings.id);
+    setSavingEmail(false);
+    setEmailSaved(true);
+    setTimeout(() => setEmailSaved(false), 2500);
+  }
 
   async function loadFactors() {
     const { data } = await supabase.auth.mfa.listFactors();
@@ -88,6 +126,73 @@ export default function SettingsPage() {
       {msg && (
         <div className={`mb-5 px-4 py-3 rounded-xl text-sm font-medium ${msg.type === 'ok' ? 'bg-[#EAF1EC] text-[#3F7A5B]' : 'bg-[#FDF0EE] text-[#C0392B]'}`}>
           {msg.text}
+        </div>
+      )}
+
+      {/* Email Settings */}
+      {firmSettings && (
+        <div className="bg-white border border-[#ECE4D9] rounded-2xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <Mail size={20} className="text-[#6B1E2B]" strokeWidth={1.7} />
+              <h2 className="text-base font-semibold text-[#241D1C]">Email Configuration</h2>
+            </div>
+            <button onClick={saveFirmSettings} disabled={savingEmail}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#6B1E2B] text-white text-sm font-medium hover:bg-[#4A141E] transition-colors disabled:opacity-60">
+              {savingEmail ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+              {emailSaved ? 'Saved!' : 'Save'}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { label: 'From Name',     key: 'from_name',    placeholder: 'Bastion Law' },
+              { label: 'From Email',    key: 'from_email',   placeholder: 'noreply@bastionlaw.pk' },
+              { label: 'Reply-To',      key: 'reply_to',     placeholder: 'info@bastionlaw.pk (optional)' },
+              { label: 'Firm Address',  key: 'firm_address', placeholder: 'e.g. Plot 42, PECHS, Karachi (optional)' },
+            ].map(({ label, key, placeholder }) => (
+              <div key={key} className={key === 'firm_address' ? 'col-span-2' : ''}>
+                <label className="block text-xs font-medium text-[#8A817B] uppercase tracking-wider mb-1.5">{label}</label>
+                <input
+                  value={(firmSettings as any)[key] ?? ''}
+                  onChange={e => setFirmSettings((s: any) => ({ ...s, [key]: e.target.value }))}
+                  placeholder={placeholder}
+                  className="w-full border border-[#ECE4D9] rounded-xl px-4 py-2.5 text-sm bg-[#F6F1EA] focus:outline-none focus:border-[#6B1E2B]"
+                />
+              </div>
+            ))}
+            <div>
+              <label className="block text-xs font-medium text-[#8A817B] uppercase tracking-wider mb-1.5">Primary Color</label>
+              <div className="flex items-center gap-3">
+                <input type="color" value={firmSettings.primary_color}
+                  onChange={e => setFirmSettings(s => s ? { ...s, primary_color: e.target.value } : s)}
+                  className="w-10 h-10 rounded-lg border border-[#ECE4D9] cursor-pointer"
+                />
+                <span className="text-sm font-mono text-[#6E635F]">{firmSettings.primary_color}</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#8A817B] uppercase tracking-wider mb-1.5">Accent Color</label>
+              <div className="flex items-center gap-3">
+                <input type="color" value={firmSettings.accent_color}
+                  onChange={e => setFirmSettings(s => s ? { ...s, accent_color: e.target.value } : s)}
+                  className="w-10 h-10 rounded-lg border border-[#ECE4D9] cursor-pointer"
+                />
+                <span className="text-sm font-mono text-[#6E635F]">{firmSettings.accent_color}</span>
+              </div>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-[#8A817B] uppercase tracking-wider mb-1.5">Logo URL</label>
+              <input
+                value={firmSettings.logo_url ?? ''}
+                onChange={e => setFirmSettings(s => s ? { ...s, logo_url: e.target.value } : s)}
+                placeholder="https://... (leave blank to use firm name as text)"
+                className="w-full border border-[#ECE4D9] rounded-xl px-4 py-2.5 text-sm bg-[#F6F1EA] focus:outline-none focus:border-[#6B1E2B]"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-[#A89F99] mt-4">
+            Add <code className="bg-[#F6F1EA] px-1 rounded font-mono">RESEND_API_KEY</code> to your <code className="bg-[#F6F1EA] px-1 rounded font-mono">.env.local</code> to activate email sending. Without it, emails are logged to console only.
+          </p>
         </div>
       )}
 

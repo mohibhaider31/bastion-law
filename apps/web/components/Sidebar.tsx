@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabase';
 import {
-  LayoutDashboard, Users, Scale, Briefcase, Calendar, Receipt, LogOut, BarChart2, Settings,
+  LayoutDashboard, Users, Scale, Briefcase, Calendar, Receipt, LogOut, BarChart2, Settings, Mail,
 } from 'lucide-react';
 
 const NAV = [
@@ -14,6 +14,7 @@ const NAV = [
   { href: '/matters',     label: 'Matters',      icon: Briefcase },
   { href: '/appointments',label: 'Appointments', icon: Calendar },
   { href: '/billing',     label: 'Billing',      icon: Receipt },
+  { href: '/emails',      label: 'Emails',       icon: Mail },
   { href: '/settings',    label: 'Settings',     icon: Settings },
 ];
 

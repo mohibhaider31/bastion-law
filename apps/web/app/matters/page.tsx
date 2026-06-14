@@ -52,8 +52,8 @@ export default function MattersPage() {
 
     if (m) {
       await supabase.from('matter_lawyers').insert({ matter_id: m.id, lawyer_id: form.lead_lawyer_id, role: 'lead' });
-      // Welcome message in firm chat + notification to client
       const lawyer = lawyers.find((l) => l.id === form.lead_lawyer_id);
+      const client = clients.find((c) => c.id === form.client_id);
       await supabase.from('messages').insert({
         matter_id: null, client_id: form.client_id, sender_id: form.lead_lawyer_id,
         body: `Welcome to Bastion Law. Your matter "${form.title}" (${ref}) has been opened and ${lawyer?.full_name ?? 'your lawyer'} has been assigned. Please review the Documents tab for any required submissions.`,
@@ -64,6 +64,27 @@ export default function MattersPage() {
         body: `${form.title} has been opened. ${lawyer?.full_name ?? 'Your lawyer'} has been assigned.`,
         matter_id: m.id,
       });
+      // Send matter-opened email
+      const { data: cp } = await supabase.from('profiles').select('email').eq('id', form.client_id).single();
+      if (cp?.email) {
+        await fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            template_slug: 'matter_opened',
+            to_email: cp.email,
+            to_name: client?.full_name ?? '',
+            client_id: form.client_id,
+            matter_id: m.id,
+            vars: {
+              client_name: client?.full_name ?? '',
+              matter_ref:  ref,
+              matter_type: form.type,
+              lawyer_name: lawyer?.full_name ?? '',
+            },
+          }),
+        }).catch(() => {});
+      }
     }
     setSaving(false);
     setModal(false);
