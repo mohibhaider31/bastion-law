@@ -16,6 +16,7 @@ interface Notification {
   body: string;
   read_at: string | null;
   created_at: string;
+  matter_id: string | null;
 }
 
 export default function NotificationsScreen() {
@@ -30,7 +31,7 @@ export default function NotificationsScreen() {
     if (!profile) return;
     const { data } = await supabase
       .from('notifications')
-      .select('id, type, title, body, read_at, created_at')
+      .select('id, type, title, body, read_at, created_at, matter_id')
       .eq('user_id', profile.id)
       .order('created_at', { ascending: false });
     if (data) setNotifs(data);
@@ -87,10 +88,26 @@ export default function NotificationsScreen() {
   );
 }
 
+function getDeepLink(notif: Notification): (() => void) | null {
+  const t = notif.type;
+  const mid = notif.matter_id;
+  if (t.includes('message') || t === 'new_message') return () => router.push('/(tabs)/messages');
+  if (t.includes('appointment')) return () => router.push('/(tabs)/schedule');
+  if (t.includes('invoice') && mid) return () => router.push({ pathname: '/case/[id]', params: { id: mid, seg: 'invoices' } });
+  if ((t.includes('document') || t.includes('doc')) && mid) return () => router.push({ pathname: '/case/[id]', params: { id: mid, seg: 'documents' } });
+  if (mid) return () => router.push({ pathname: '/case/[id]', params: { id: mid } });
+  return null;
+}
+
 function NotifRow({ notif, isNew }: { notif: Notification; isNew?: boolean }) {
   const { bg } = notifStyle(notif.type);
+  const onPress = getDeepLink(notif);
   return (
-    <View style={[styles.notifRow, isNew && styles.notifRowNew]}>
+    <TouchableOpacity
+      style={[styles.notifRow, isNew && styles.notifRowNew, !!onPress && styles.notifRowTappable]}
+      onPress={onPress ?? undefined}
+      activeOpacity={onPress ? 0.75 : 1}
+    >
       <View style={[styles.notifIcon, { backgroundColor: bg }]}>
         <NotifIcon type={notif.type} />
       </View>
@@ -99,7 +116,12 @@ function NotifRow({ notif, isNew }: { notif: Notification; isNew?: boolean }) {
         <Text style={styles.notifBody} numberOfLines={2}>{notif.body}</Text>
         <Text style={styles.notifTime}>{relTime(notif.created_at)}</Text>
       </View>
-    </View>
+      {onPress && (
+        <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={colors.inkTertiary} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ alignSelf: 'center' }}>
+          <Path d="M9 18l6-6-6-6" />
+        </Svg>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -155,6 +177,7 @@ const styles = StyleSheet.create({
   sectionLabel: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 10, color: colors.inkMuted, letterSpacing: 1.5, marginBottom: 10 },
   notifRow: { flexDirection: 'row', gap: 12, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 14, marginBottom: 8 },
   notifRowNew: { backgroundColor: colors.roseBg, borderColor: colors.roseTint },
+  notifRowTappable: { borderColor: colors.brassLight },
   notifIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   notifContent: { flex: 1 },
   notifTitle: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 14, color: colors.ink, marginBottom: 3 },

@@ -17,6 +17,7 @@ interface Thread {
   last_body: string;
   last_at: string;
   unread: number;
+  sla_elapsed_minutes: number | null; // null if lawyer replied last
 }
 
 function relTime(iso: string) {
@@ -68,6 +69,10 @@ export default function MessagesScreen() {
         const mmsgs = byMatter.get(m.id)!;
         const last = mmsgs[0];
         const unread = mmsgs.filter((msg) => msg.sender_id !== profile.id && !msg.read_at).length;
+        // SLA: only flag if the latest message is from the client (not the lawyer)
+        const sla_elapsed_minutes = last.sender_id !== profile.id
+          ? Math.floor((Date.now() - new Date(last.created_at).getTime()) / 60000)
+          : null;
         return {
           matter_id: m.id,
           matter_ref: m.matter_ref,
@@ -76,6 +81,7 @@ export default function MessagesScreen() {
           last_body: last.body ?? '(attachment)',
           last_at: last.created_at,
           unread,
+          sla_elapsed_minutes,
         };
       })
       .sort((a, b) => b.last_at.localeCompare(a.last_at));
@@ -130,7 +136,18 @@ export default function MessagesScreen() {
                     <Text style={[styles.clientName, t.unread > 0 && styles.clientNameBold]} numberOfLines={1}>{t.client_name}</Text>
                     <Text style={styles.time}>{relTime(t.last_at)}</Text>
                   </View>
-                  <Text style={styles.matterRef}>{t.matter_ref} · {t.matter_title}</Text>
+                  <View style={styles.refRow}>
+                    <Text style={styles.matterRef}>{t.matter_ref} · {t.matter_title}</Text>
+                    {t.sla_elapsed_minutes !== null && t.sla_elapsed_minutes >= 30 && (
+                      <View style={[styles.slaBadge, t.sla_elapsed_minutes >= 120 && styles.slaBadgeBreached]}>
+                        <Text style={[styles.slaBadgeText, t.sla_elapsed_minutes >= 120 && styles.slaBadgeTextBreached]}>
+                          {t.sla_elapsed_minutes >= 60
+                            ? `${Math.floor(t.sla_elapsed_minutes / 60)}h ${t.sla_elapsed_minutes % 60}m`
+                            : `${t.sla_elapsed_minutes}m`}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={[styles.preview, t.unread > 0 && styles.previewBold]} numberOfLines={1}>{t.last_body}</Text>
                 </View>
                 {t.unread > 0 && (
@@ -172,7 +189,12 @@ const styles = StyleSheet.create({
   clientName: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 14, color: colors.ink, flex: 1 },
   clientNameBold: { fontFamily: 'HankenGrotesk_700Bold' },
   time: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 11, color: colors.inkTertiary, marginLeft: 8 },
-  matterRef: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 11, color: colors.inkMuted, marginBottom: 3 },
+  refRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
+  matterRef: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 11, color: colors.inkMuted },
+  slaBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: colors.amberBg },
+  slaBadgeBreached: { backgroundColor: colors.redBg },
+  slaBadgeText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 9, color: colors.amber },
+  slaBadgeTextBreached: { color: colors.red },
   preview: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: colors.inkSecondary },
   previewBold: { fontFamily: 'HankenGrotesk_500Medium', color: colors.ink },
 

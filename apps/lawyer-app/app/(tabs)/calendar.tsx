@@ -14,7 +14,7 @@ export default function CalendarScreen() {
   const { profile } = useAuthStore();
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [view, setView] = useState<'week' | 'month'>('week');
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [addModal, setAddModal] = useState(false);
@@ -107,9 +107,23 @@ export default function CalendarScreen() {
     load();
   }
 
-  // Group events by date for week view
+  // Build month strip for the current month
   const today = new Date();
-  const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(today); d.setDate(d.getDate() + i); return d; });
+  const todayStr = today.toISOString().split('T')[0];
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const monthDays = Array.from({ length: monthEnd.getDate() }, (_, i) => {
+    const d = new Date(monthStart); d.setDate(i + 1); return d;
+  });
+
+  // Events grouped by date
+  const eventsByDate = events.reduce<Record<string, CalEvent[]>>((acc, ev) => {
+    if (!acc[ev.event_date]) acc[ev.event_date] = [];
+    acc[ev.event_date].push(ev);
+    return acc;
+  }, {});
+
+  const selectedEvents = eventsByDate[selectedDate] ?? [];
 
   if (loading) return (
     <SafeAreaView style={[styles.root, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -120,22 +134,37 @@ export default function CalendarScreen() {
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
-        <Text style={styles.title}>Calendar</Text>
-        <View style={styles.headerRight}>
-          <View style={styles.viewToggle}>
-            {(['week', 'month'] as const).map((v) => (
-              <TouchableOpacity key={v} style={[styles.viewBtn, view === v && styles.viewBtnActive]} onPress={() => setView(v)}>
-                <Text style={[styles.viewBtnText, view === v && styles.viewBtnTextActive]}>{v.charAt(0).toUpperCase() + v.slice(1)}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <TouchableOpacity style={styles.addBtn} onPress={() => setAddModal(true)}>
-            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <Path d="M12 5v14M5 12h14" />
-            </Svg>
-          </TouchableOpacity>
+        <View>
+          <Text style={styles.title}>Calendar</Text>
+          <Text style={styles.monthLabel}>{today.toLocaleString('en', { month: 'long', year: 'numeric' })}</Text>
         </View>
+        <TouchableOpacity style={styles.addBtn} onPress={() => setAddModal(true)}>
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <Path d="M12 5v14M5 12h14" />
+          </Svg>
+        </TouchableOpacity>
       </View>
+
+      {/* Month strip */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.monthStrip}>
+        {monthDays.map((day) => {
+          const ds = day.toISOString().split('T')[0];
+          const isToday = ds === todayStr;
+          const isSelected = ds === selectedDate;
+          const hasDot = !!(eventsByDate[ds]?.length);
+          return (
+            <TouchableOpacity key={ds} style={[styles.dayCell, isSelected && styles.dayCellSelected, isToday && !isSelected && styles.dayCellToday]} onPress={() => setSelectedDate(ds)} activeOpacity={0.7}>
+              <Text style={[styles.dayLetter, isSelected && styles.dayLetterSelected, isToday && !isSelected && styles.dayLetterToday]}>
+                {day.toLocaleString('en', { weekday: 'narrow' })}
+              </Text>
+              <Text style={[styles.dayNum, isSelected && styles.dayNumSelected, isToday && !isSelected && styles.dayNumToday]}>
+                {day.getDate()}
+              </Text>
+              {hasDot && <View style={[styles.dot, isSelected && styles.dotSelected]} />}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.burgundy} />}>
@@ -184,49 +213,30 @@ export default function CalendarScreen() {
           </View>
         ))}
 
-        {/* Week view */}
-        {view === 'week' && (
-          <View style={styles.weekGrid}>
-            {weekDays.map((day) => {
-              const dateStr = day.toISOString().split('T')[0];
-              const dayEvents = events.filter((e) => e.event_date === dateStr);
-              const isToday = dateStr === today.toISOString().split('T')[0];
-              return (
-                <View key={dateStr} style={styles.dayCol}>
-                  <View style={[styles.dayHeader, isToday && styles.dayHeaderToday]}>
-                    <Text style={[styles.dayName, isToday && styles.dayNameToday]}>{day.toLocaleString('en', { weekday: 'short' })}</Text>
-                    <Text style={[styles.dayNum, isToday && styles.dayNumToday]}>{day.getDate()}</Text>
-                  </View>
-                  {dayEvents.map((ev) => (
-                    <View key={ev.id} style={[styles.evCell, { backgroundColor: evBg(ev.type) }]}>
-                      <Text style={[styles.evCellTitle, { color: evColor(ev.type) }]} numberOfLines={1}>{ev.title}</Text>
-                      {ev.event_time && <Text style={[styles.evCellTime, { color: evColor(ev.type) }]}>{ev.event_time.slice(0, 5)}</Text>}
-                    </View>
-                  ))}
-                </View>
-              );
-            })}
-          </View>
-        )}
-
-        {/* Month list view */}
-        {view === 'month' && (
-          <View style={styles.eventList}>
-            {events.map((ev) => (
-              <View key={ev.id} style={styles.eventRow}>
-                <View style={[styles.evTypeDot, { backgroundColor: evColor(ev.type) }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.evTitle}>{ev.title}</Text>
-                  <Text style={styles.evMeta}>{fmtDate(ev.event_date)}{ev.event_time ? ` · ${ev.event_time.slice(0, 5)}` : ''}{ev.location ? ` · ${ev.location}` : ''}</Text>
-                </View>
-                <View style={[styles.evTypeBadge, { backgroundColor: evBg(ev.type) }]}>
-                  <Text style={[styles.evTypeBadgeText, { color: evColor(ev.type) }]}>{ev.type}</Text>
-                </View>
+        {/* Day event list */}
+        <View style={styles.daySection}>
+          <Text style={styles.daySectionLabel}>
+            {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()}
+          </Text>
+          {selectedEvents.length > 0 ? selectedEvents.map((ev) => (
+            <View key={ev.id} style={styles.eventRow}>
+              <View style={[styles.evBar, { backgroundColor: evColor(ev.type) }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.evTitle}>{ev.title}</Text>
+                <Text style={styles.evMeta}>
+                  {ev.event_time ? ev.event_time.slice(0, 5) : 'All day'}{ev.location ? ` · ${ev.location}` : ''}
+                </Text>
               </View>
-            ))}
-            {events.length === 0 && <Text style={styles.emptyText}>No upcoming events.</Text>}
-          </View>
-        )}
+              <View style={[styles.evTypeBadge, { backgroundColor: evBg(ev.type) }]}>
+                <Text style={[styles.evTypeBadgeText, { color: evColor(ev.type) }]}>{ev.type}</Text>
+              </View>
+            </View>
+          )) : (
+            <View style={styles.emptyDay}>
+              <Text style={styles.emptyDayText}>No events</Text>
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       {/* Propose New Time Modal */}
@@ -292,20 +302,26 @@ export default function CalendarScreen() {
 
 function evColor(type: string) { if (type === 'hearing') return colors.amber; if (type === 'deadline') return colors.red; if (type === 'meeting') return colors.burgundy; return colors.inkSecondary; }
 function evBg(type: string) { if (type === 'hearing') return colors.amberBg; if (type === 'deadline') return colors.redBg; if (type === 'meeting') return colors.roseTint; return colors.borderLight; }
-function fmtDate(iso: string) { return new Date(iso).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' }); }
 function fmtDT(iso: string) { return new Date(iso).toLocaleString('en-PK', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.cream },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12 },
   title: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 24, color: colors.ink },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  viewToggle: { flexDirection: 'row', backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  viewBtn: { paddingHorizontal: 12, paddingVertical: 7 },
-  viewBtnActive: { backgroundColor: colors.burgundy },
-  viewBtnText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 12, color: colors.inkSecondary },
-  viewBtnTextActive: { color: '#fff' },
-  addBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.burgundy, alignItems: 'center', justifyContent: 'center' },
+  monthLabel: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: colors.inkSecondary, marginTop: 2 },
+  addBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.burgundy, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  monthStrip: { paddingHorizontal: 16, paddingBottom: 12, gap: 6 },
+  dayCell: { width: 44, paddingVertical: 8, borderRadius: 12, alignItems: 'center', gap: 2, backgroundColor: 'transparent' },
+  dayCellSelected: { backgroundColor: colors.burgundy },
+  dayCellToday: { backgroundColor: colors.roseTint },
+  dayLetter: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 10, color: colors.inkTertiary, letterSpacing: 0.3 },
+  dayLetterSelected: { color: 'rgba(246,241,234,0.8)' },
+  dayLetterToday: { color: colors.burgundy },
+  dayNum: { fontFamily: 'HankenGrotesk_700Bold', fontSize: 16, color: colors.ink },
+  dayNumSelected: { color: '#fff' },
+  dayNumToday: { color: colors.burgundy },
+  dot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.burgundy, marginTop: 1 },
+  dotSelected: { backgroundColor: 'rgba(246,241,234,0.7)' },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 40 },
 
@@ -321,26 +337,16 @@ const styles = StyleSheet.create({
   acceptText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 13, color: colors.green },
   rejectText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 13, color: colors.inkSecondary },
 
-  weekGrid: { flexDirection: 'row', gap: 6 },
-  dayCol: { flex: 1 },
-  dayHeader: { alignItems: 'center', paddingVertical: 6, marginBottom: 4 },
-  dayHeaderToday: { backgroundColor: colors.roseTint, borderRadius: 8 },
-  dayName: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 10, color: colors.inkTertiary },
-  dayNameToday: { color: colors.burgundy },
-  dayNum: { fontFamily: 'HankenGrotesk_700Bold', fontSize: 16, color: colors.ink },
-  dayNumToday: { color: colors.burgundy },
-  evCell: { borderRadius: 6, padding: 4, marginBottom: 3 },
-  evCellTitle: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 9 },
-  evCellTime: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 9 },
-
-  eventList: { gap: 8 },
+  daySection: { gap: 8 },
+  daySectionLabel: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 10, color: colors.inkMuted, letterSpacing: 1.5, marginBottom: 4 },
   eventRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 14 },
-  evTypeDot: { width: 10, height: 10, borderRadius: 5 },
+  evBar: { width: 3, borderRadius: 999, alignSelf: 'stretch', minHeight: 40 },
   evTitle: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 14, color: colors.ink },
   evMeta: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: colors.inkSecondary, marginTop: 2 },
   evTypeBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   evTypeBadgeText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 10, textTransform: 'capitalize' },
-  emptyText: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: colors.inkSecondary, textAlign: 'center', paddingTop: 40 },
+  emptyDay: { paddingVertical: 32, alignItems: 'center', backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border },
+  emptyDayText: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: colors.inkSecondary },
 
   backdrop: { flex: 1, backgroundColor: 'rgba(28,21,18,0.55)' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 48 },

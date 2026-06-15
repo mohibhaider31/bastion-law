@@ -98,36 +98,41 @@ export default function ClientsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.burgundy} />}
       >
         {filtered.map((client) => (
-          <TouchableOpacity key={client.id} style={styles.clientCard} onPress={() => router.push(`/client/${client.id}`)} activeOpacity={0.85}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{client.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</Text>
-            </View>
-            <View style={styles.clientInfo}>
-              <View style={styles.clientTopRow}>
-                <Text style={styles.clientName}>{client.full_name}</Text>
-                <View style={styles.mattersBadge}>
-                  <Text style={styles.mattersBadgeText}>{client.matter_count} matter{client.matter_count !== 1 ? 's' : ''}</Text>
-                </View>
+          <View key={client.id} style={styles.clientCard}>
+            <View style={styles.cardMain}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{client.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</Text>
               </View>
-              <Text style={styles.clientEmail}>{client.email}</Text>
-              {client.phone && <Text style={styles.clientPhone}>{client.phone}</Text>}
-              {client.last_message_at && (
-                <Text style={styles.lastContact}>Last contact {relTime(client.last_message_at)}</Text>
-              )}
+              <View style={styles.clientInfo}>
+                <Text style={styles.clientName}>{client.full_name}</Text>
+                <Text style={styles.clientEmail}>{client.email}</Text>
+                {client.phone && <Text style={styles.clientPhone}>{client.phone}</Text>}
+                {client.last_message_at && (
+                  <Text style={styles.lastContact}>Last contact {relTime(client.last_message_at)}</Text>
+                )}
+              </View>
+              <View style={styles.actions}>
+                {client.phone && (
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => Linking.openURL(`tel:${client.phone}`)}>
+                    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={colors.green} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                      <Path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.12 1.18 2 2 0 012.1 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92v2z" />
+                    </Svg>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
-            <View style={styles.actions}>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => client.phone && Linking.openURL(`tel:${client.phone}`)}>
-                <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={colors.green} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                  <Path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.12 1.18 2 2 0 012.1 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92v2z" />
+            <View style={styles.cardFooter}>
+              <View style={styles.mattersBadge}>
+                <Text style={styles.mattersBadgeText}>{client.matter_count} matter{client.matter_count !== 1 ? 's' : ''}</Text>
+              </View>
+              <TouchableOpacity style={styles.viewCasesBtn} onPress={() => router.push(`/client/${client.id}`)}>
+                <Text style={styles.viewCasesBtnText}>View Cases</Text>
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={colors.burgundy} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  <Path d="M9 18l6-6-6-6" />
                 </Svg>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.actionBtn} onPress={() => client.matter_id && router.push(`/matter/${client.matter_id}`)}>
-                <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={colors.burgundy} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                  <Path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                </Svg>
-              </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </View>
         ))}
         {filtered.length === 0 && (
           <View style={styles.empty}>
@@ -155,19 +160,22 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: colors.ink },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 40 },
-  clientCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14, marginBottom: 10 },
+  clientCard: { backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14, marginBottom: 10 },
+  cardMain: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
+  cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: colors.borderLight, paddingTop: 10 },
   avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.roseTint, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontFamily: 'HankenGrotesk_700Bold', fontSize: 15, color: colors.burgundy },
   clientInfo: { flex: 1 },
-  clientTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 3 },
-  clientName: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 15, color: colors.ink, flex: 1 },
-  mattersBadge: { backgroundColor: colors.roseTint, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  mattersBadgeText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 10, color: colors.burgundy },
+  clientName: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 15, color: colors.ink, marginBottom: 2 },
+  mattersBadge: { backgroundColor: colors.roseTint, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
+  mattersBadgeText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 11, color: colors.burgundy },
   clientEmail: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: colors.inkSecondary },
   clientPhone: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: colors.inkSecondary, marginTop: 1 },
   lastContact: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 11, color: colors.inkTertiary, marginTop: 4 },
   actions: { gap: 6 },
   actionBtn: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  viewCasesBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  viewCasesBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 13, color: colors.burgundy },
   empty: { alignItems: 'center', paddingTop: 60 },
   emptyText: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 15, color: colors.inkSecondary },
 });

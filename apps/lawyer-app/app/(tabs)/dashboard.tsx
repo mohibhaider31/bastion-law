@@ -26,6 +26,7 @@ interface PendingDoc {
   client_name: string;
   due_date: string | null;
   matter_ref: string;
+  matter_id: string;
 }
 
 interface TodayEvent {
@@ -127,6 +128,7 @@ export default function DashboardScreen() {
             client_name: (matter as any).client.full_name,
             due_date: doc.due_date,
             matter_ref: matter.matter_ref,
+            matter_id: matter.id,
           });
         }
       }
@@ -268,7 +270,7 @@ export default function DashboardScreen() {
                   </Text>
                 </View>
                 <View style={styles.slaActions}>
-                  <TouchableOpacity style={styles.replyBtn} onPress={() => router.push(`/matter/${item.matter_id}`)}>
+                  <TouchableOpacity style={styles.replyBtn} onPress={() => router.push({ pathname: '/matter/[id]', params: { id: item.matter_id, tab: 'chat' } })}>
                     <Text style={styles.replyBtnText}>Reply</Text>
                   </TouchableOpacity>
                   {!escalated.has(item.id) ? (
@@ -306,6 +308,9 @@ export default function DashboardScreen() {
                     </Text>
                   </View>
                 )}
+                <TouchableOpacity style={styles.verifyBtn} onPress={() => router.push({ pathname: '/matter/[id]', params: { id: doc.matter_id, tab: 'documents' } })}>
+                  <Text style={styles.verifyBtnText}>Verify</Text>
+                </TouchableOpacity>
               </View>
             ))}
           </View>
@@ -487,6 +492,8 @@ const styles = StyleSheet.create({
   dueBadgeUrgent: { backgroundColor: colors.redBg },
   dueBadgeText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 11, color: colors.amber },
   dueBadgeTextUrgent: { color: colors.red },
+  verifyBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.roseTint, borderWidth: 1, borderColor: colors.burgundy },
+  verifyBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 11, color: colors.burgundy },
 
   eventRow: { flexDirection: 'row', gap: 12, marginBottom: 10 },
   eventBar: { width: 3, borderRadius: 999, minHeight: 44 },

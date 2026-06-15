@@ -42,20 +42,42 @@ export default function ScheduleScreen() {
   const [scheduleModal, setScheduleModal] = useState(false);
   const [proposing, setProposing] = useState<string | null>(null); // appt id
 
-  // Schedule modal state
-  const [meetingType, setMeetingType] = useState<'video' | 'in_person'>('video');
-  const [agenda, setAgenda] = useState('');
+  // Lawyers available to book
+  const [availableLawyers, setAvailableLawyers] = useState<{ id: string; full_name: string; matter_id: string }[]>([]);
+
+  // New appointment modal state
+  const [meetTarget, setMeetTarget] = useState<'lawyer' | 'support'>('lawyer');
+  const [selectedLawyerId, setSelectedLawyerId] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedSlot, setSelectedSlot] = useState('');
+  const [purpose, setPurpose] = useState('');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // Counter-propose state (simpler UI)
   const [proposeDate, setProposeDate] = useState('');
   const [proposeTime, setProposeTime] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [agenda, setAgenda] = useState('');
 
   useEffect(() => { if (profile) load(); }, [profile]);
 
   async function load() {
     if (!profile) return;
-    const { data: matters } = await supabase.from('matters').select('id').eq('client_id', profile.id).eq('status', 'active');
+    const { data: matters } = await supabase.from('matters').select('id, lead_lawyer_id, lead_lawyer:profiles!lead_lawyer_id(full_name)').eq('client_id', profile.id).eq('status', 'active');
     if (!matters?.length) { setLoading(false); setRefreshing(false); return; }
     const matterIds = matters.map((m) => m.id);
+
+    // Build unique lawyer list for booking
+    const seen = new Set<string>();
+    const lawyers: { id: string; full_name: string; matter_id: string }[] = [];
+    for (const m of matters as any[]) {
+      if (m.lead_lawyer_id && !seen.has(m.lead_lawyer_id)) {
+        seen.add(m.lead_lawyer_id);
+        lawyers.push({ id: m.lead_lawyer_id, full_name: m.lead_lawyer?.full_name ?? 'Lawyer', matter_id: m.id });
+      }
+    }
+    setAvailableLawyers(lawyers);
+    if (lawyers.length === 1) setSelectedLawyerId(lawyers[0].id);
 
     const [apptsRes, eventsRes] = await Promise.all([
       supabase.from('appointments')
@@ -85,17 +107,16 @@ export default function ScheduleScreen() {
     if (!profile) return;
     setSubmitting(true);
 
-    let proposedAt: Date;
-    if (proposeDate) {
-      proposedAt = new Date(`${proposeDate}T${proposeTime || '11:00'}:00`);
-    } else {
-      proposedAt = new Date();
-      proposedAt.setDate(proposedAt.getDate() + 3);
-      proposedAt.setHours(11, 0, 0, 0);
-    }
-
     if (proposing) {
-      // Counter-propose: update existing appointment to client's preferred time
+      // Counter-propose: use the simple date+time text inputs
+      let proposedAt: Date;
+      if (proposeDate) {
+        proposedAt = new Date(`${proposeDate}T${proposeTime || '11:00'}:00`);
+      } else {
+        proposedAt = new Date();
+        proposedAt.setDate(proposedAt.getDate() + 3);
+        proposedAt.setHours(11, 0, 0, 0);
+      }
       const appt = appointments.find((a) => a.id === proposing);
       await supabase.from('appointments').update({
         proposed_at: proposedAt.toISOString(),
@@ -107,18 +128,31 @@ export default function ScheduleScreen() {
         dispatchPush(appt.lawyer_id, profile.full_name, `Proposed a new meeting time: ${fmtDateTime(proposedAt.toISOString())}`, { screen: 'calendar' });
       }
     } else {
-      const { data: matterRows } = await supabase.from('matters').select('id, lead_lawyer_id').eq('client_id', profile.id).eq('status', 'active').order('opened_at', { ascending: false }).limit(1);
-      const matter = matterRows?.[0];
-      if (matter && matter.lead_lawyer_id) {
-        await supabase.from('appointments').insert({
-          matter_id: matter.id, client_id: profile.id, lawyer_id: matter.lead_lawyer_id,
-          type: meetingType, proposed_at: proposedAt.toISOString(), agenda: agenda || null, proposed_by: profile.id,
-        });
-      }
+      // New appointment via the full booking modal
+      const lawyerEntry = availableLawyers.find((l) => l.id === selectedLawyerId) ?? availableLawyers[0];
+      if (!lawyerEntry) { setSubmitting(false); return; }
+
+      const dateStr = selectedDate || (() => {
+        const d = new Date(); d.setDate(d.getDate() + 3); return d.toISOString().split('T')[0];
+      })();
+      const timeStr = selectedSlot || '11:00';
+      const proposedAt = new Date(`${dateStr}T${timeStr}:00`);
+
+      await supabase.from('appointments').insert({
+        matter_id: lawyerEntry.matter_id,
+        client_id: profile.id,
+        lawyer_id: lawyerEntry.id,
+        type: 'video',
+        proposed_at: proposedAt.toISOString(),
+        agenda: [purpose, notes].filter(Boolean).join(' — ') || null,
+        proposed_by: profile.id,
+      });
     }
+
     setSubmitting(false);
     setScheduleModal(false);
     setAgenda(''); setProposeDate(''); setProposeTime(''); setProposing(null);
+    setSelectedDate(''); setSelectedSlot(''); setPurpose(''); setNotes('');
     load();
   }
 
@@ -235,49 +269,110 @@ export default function ScheduleScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Schedule Meeting Modal */}
-      <Modal visible={scheduleModal} transparent animationType="slide" onRequestClose={() => setScheduleModal(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setScheduleModal(false)} />
-        <View style={styles.sheet}>
-          <View style={styles.handle} />
-          <Text style={styles.sheetTitle}>Schedule Meeting</Text>
+      {/* Book / Counter-Propose Modal */}
+      <Modal visible={scheduleModal} transparent animationType="slide" onRequestClose={() => { setScheduleModal(false); setProposing(null); }}>
+        <Pressable style={styles.backdrop} onPress={() => { setScheduleModal(false); setProposing(null); }} />
+        <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetScrollContent} keyboardShouldPersistTaps="handled" bounces={false}>
+          <View style={styles.sheet}>
+            <View style={styles.handle} />
+            <Text style={styles.sheetTitle}>{proposing ? 'Propose New Time' : 'Book Appointment'}</Text>
 
-          {!proposing && (
-            <>
-              <Text style={styles.fieldLabel}>MEETING TYPE</Text>
-              <View style={styles.toggleRow}>
-                {(['video', 'in_person'] as const).map((t) => (
-                  <TouchableOpacity key={t} style={[styles.toggleBtn, meetingType === t && styles.toggleBtnActive]} onPress={() => setMeetingType(t)}>
-                    <Text style={[styles.toggleBtnText, meetingType === t && styles.toggleBtnTextActive]}>
-                      {t === 'video' ? 'Video Call' : 'In-Person'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </>
-          )}
+            {proposing ? (
+              /* Counter-propose: simple date + time + agenda */
+              <>
+                <Text style={styles.fieldLabel}>PREFERRED DATE & TIME</Text>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                  <TextInput style={[styles.slotInput, { flex: 1 }]} value={proposeDate} onChangeText={setProposeDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkTertiary} />
+                  <TextInput style={[styles.slotInput, { flex: 1 }]} value={proposeTime} onChangeText={setProposeTime} placeholder="HH:MM" placeholderTextColor={colors.inkTertiary} />
+                </View>
+                <Text style={styles.fieldLabel}>NOTES</Text>
+                <TextInput style={styles.notesInput} value={agenda} onChangeText={setAgenda} placeholder="Anything to add?" placeholderTextColor={colors.inkTertiary} multiline numberOfLines={3} />
+              </>
+            ) : (
+              /* Full booking form */
+              <>
+                {/* Who to meet toggle */}
+                <Text style={styles.fieldLabel}>WHO WOULD YOU LIKE TO MEET?</Text>
+                <View style={styles.toggleRow}>
+                  {(['lawyer', 'support'] as const).map((t) => (
+                    <TouchableOpacity key={t} style={[styles.toggleBtn, meetTarget === t && styles.toggleBtnActive]} onPress={() => setMeetTarget(t)}>
+                      <Text style={[styles.toggleBtnText, meetTarget === t && styles.toggleBtnTextActive]}>
+                        {t === 'lawyer' ? 'My Lawyer' : 'Support Team'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-          <Text style={styles.fieldLabel}>PREFERRED DATE & TIME</Text>
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-            <TextInput style={[styles.agendaInput, { flex: 1, minHeight: 0, marginBottom: 0 }]} value={proposeDate} onChangeText={setProposeDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkTertiary} />
-            <TextInput style={[styles.agendaInput, { flex: 1, minHeight: 0, marginBottom: 0 }]} value={proposeTime} onChangeText={setProposeTime} placeholder="HH:MM" placeholderTextColor={colors.inkTertiary} />
+                {/* Lawyer selector cards */}
+                {meetTarget === 'lawyer' && availableLawyers.length > 1 && (
+                  <>
+                    <Text style={styles.fieldLabel}>SELECT LAWYER</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
+                      {availableLawyers.map((l) => {
+                        const initials = l.full_name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+                        const active = selectedLawyerId === l.id;
+                        return (
+                          <TouchableOpacity key={l.id} style={[styles.lawyerCard, active && styles.lawyerCardActive]} onPress={() => setSelectedLawyerId(l.id)}>
+                            <View style={[styles.lawyerAvatar, active && styles.lawyerAvatarActive]}>
+                              <Text style={[styles.lawyerInitials, active && { color: '#fff' }]}>{initials}</Text>
+                            </View>
+                            <Text style={[styles.lawyerName, active && styles.lawyerNameActive]} numberOfLines={2}>{l.full_name}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                )}
+
+                {/* Date */}
+                <Text style={styles.fieldLabel}>DATE</Text>
+                <TextInput style={[styles.slotInput, { marginBottom: 20 }]} value={selectedDate} onChangeText={setSelectedDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.inkTertiary} />
+
+                {/* Time slot grid */}
+                <Text style={styles.fieldLabel}>TIME</Text>
+                <View style={styles.slotGrid}>
+                  {['09:00', '10:00', '11:00', '12:00', '14:00', '15:00', '16:00', '17:00'].map((slot) => {
+                    const label = (() => {
+                      const [h, m] = slot.split(':').map(Number);
+                      const ampm = h >= 12 ? 'PM' : 'AM';
+                      return `${h > 12 ? h - 12 : h || 12}:${m.toString().padStart(2, '0')} ${ampm}`;
+                    })();
+                    const active = selectedSlot === slot;
+                    return (
+                      <TouchableOpacity key={slot} style={[styles.slot, active && styles.slotActive]} onPress={() => setSelectedSlot(slot)}>
+                        <Text style={[styles.slotText, active && styles.slotTextActive]}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Purpose pills */}
+                <Text style={styles.fieldLabel}>PURPOSE</Text>
+                <View style={styles.pillRow}>
+                  {['Case Consultation', 'Document Review', 'Case Update', 'General Inquiry', 'Other'].map((p) => (
+                    <TouchableOpacity key={p} style={[styles.pill, purpose === p && styles.pillActive]} onPress={() => setPurpose(purpose === p ? '' : p)}>
+                      <Text style={[styles.pillText, purpose === p && styles.pillTextActive]}>{p}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Additional notes */}
+                <Text style={styles.fieldLabel}>ADDITIONAL NOTES (OPTIONAL)</Text>
+                <TextInput style={styles.notesInput} value={notes} onChangeText={setNotes} placeholder="Anything specific you'd like to discuss…" placeholderTextColor={colors.inkTertiary} multiline numberOfLines={3} />
+              </>
+            )}
+
+            {/* Action buttons */}
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setScheduleModal(false); setProposing(null); }}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.submitBtn, { flex: 1 }]} onPress={bookAppointment} disabled={submitting}>
+                {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{proposing ? 'Send Proposal' : 'Book Appointment'}</Text>}
+              </TouchableOpacity>
+            </View>
           </View>
-
-          <Text style={styles.fieldLabel}>AGENDA</Text>
-          <TextInput
-            style={styles.agendaInput}
-            value={agenda}
-            onChangeText={setAgenda}
-            placeholder="What would you like to discuss?"
-            placeholderTextColor={colors.inkTertiary}
-            multiline
-            numberOfLines={3}
-          />
-
-          <TouchableOpacity style={styles.submitBtn} onPress={bookAppointment} disabled={submitting}>
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>{proposing ? 'Send new time proposal' : 'Send appointment request'}</Text>}
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
       </Modal>
     </SafeAreaView>
   );
@@ -349,6 +444,8 @@ const styles = StyleSheet.create({
   bookBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 15, color: '#fff' },
 
   backdrop: { flex: 1, backgroundColor: 'rgba(28,21,18,0.55)' },
+  sheetScroll: { marginTop: 'auto' },
+  sheetScrollContent: { justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 48 },
   handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 20 },
   sheetTitle: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 18, color: colors.ink, marginBottom: 20 },
@@ -358,7 +455,33 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: colors.burgundy, borderColor: colors.burgundy },
   toggleBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 13, color: colors.inkSecondary },
   toggleBtnTextActive: { color: '#fff' },
-  agendaInput: { backgroundColor: colors.cream, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 14, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: colors.ink, minHeight: 90, textAlignVertical: 'top', marginBottom: 20 },
+
+  lawyerCard: { width: 90, borderRadius: 14, padding: 12, marginRight: 10, alignItems: 'center', backgroundColor: colors.cream, borderWidth: 1.5, borderColor: colors.border },
+  lawyerCardActive: { borderColor: colors.burgundy, backgroundColor: colors.roseTint },
+  lawyerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.brassLight, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  lawyerAvatarActive: { backgroundColor: colors.burgundy },
+  lawyerInitials: { fontFamily: 'HankenGrotesk_700Bold', fontSize: 16, color: colors.amber },
+  lawyerName: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 11, color: colors.inkSecondary, textAlign: 'center' },
+  lawyerNameActive: { color: colors.burgundy },
+
+  slotInput: { backgroundColor: colors.cream, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, paddingVertical: 12, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: colors.ink },
+  slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  slot: { width: '22%', height: 40, borderRadius: 10, backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  slotActive: { backgroundColor: colors.burgundy, borderColor: colors.burgundy },
+  slotText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 12, color: colors.inkSecondary },
+  slotTextActive: { color: '#fff' },
+
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.border },
+  pillActive: { backgroundColor: colors.burgundy, borderColor: colors.burgundy },
+  pillText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 13, color: colors.inkSecondary },
+  pillTextActive: { color: '#fff' },
+
+  notesInput: { backgroundColor: colors.cream, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: 14, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: colors.ink, minHeight: 80, textAlignVertical: 'top', marginBottom: 24 },
+
+  modalActions: { flexDirection: 'row', gap: 10 },
+  cancelBtn: { height: 54, borderRadius: 14, paddingHorizontal: 20, backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  cancelBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 15, color: colors.inkSecondary },
   submitBtn: { height: 54, borderRadius: 14, backgroundColor: colors.burgundy, alignItems: 'center', justifyContent: 'center' },
   submitBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 15, color: '#fff' },
 });

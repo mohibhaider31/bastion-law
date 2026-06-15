@@ -114,12 +114,12 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="search"
+        name="support"
         options={{
-          title: 'Search',
+          title: 'Support',
           tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused}>
-              <SearchIcon color={focused ? colors.burgundy : colors.inkTertiary} />
+              <SupportIcon color={focused ? colors.burgundy : colors.inkTertiary} />
             </TabIcon>
           ),
         }}
@@ -128,7 +128,7 @@ export default function TabsLayout() {
   );
 }
 
-import Svg, { Path, Rect, Circle, Line } from 'react-native-svg';
+import Svg, { Path, Rect, Line } from 'react-native-svg';
 
 function HomeIcon({ color }: { color: string }) {
   return (
@@ -167,11 +167,11 @@ function MsgIcon({ color }: { color: string }) {
   );
 }
 
-function SearchIcon({ color }: { color: string }) {
+function SupportIcon({ color }: { color: string }) {
   return (
     <Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <Circle cx="11" cy="11" r="8" />
-      <Line x1="21" y1="21" x2="16.65" y2="16.65" />
+      <Path d="M3 18v-6a9 9 0 0118 0v6" />
+      <Path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z" />
     </Svg>
   );
 }
