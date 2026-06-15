@@ -1,6 +1,10 @@
+import { useEffect } from 'react';
 import { Tabs } from 'expo-router';
 import { View, StyleSheet } from 'react-native';
 import { colors } from '../../lib/colors';
+import { supabase } from '../../lib/supabase';
+import { useAuthStore } from '../../store/auth';
+import { useMessagesStore } from '../../store/messages';
 
 function TabIcon({ focused, children }: { focused: boolean; children: React.ReactNode }) {
   return (
@@ -12,6 +16,33 @@ function TabIcon({ focused, children }: { focused: boolean; children: React.Reac
 
 // Inline SVG-style icons as text for now — swap for SVG components if desired
 export default function TabsLayout() {
+  const profile = useAuthStore((s) => s.profile);
+  const { unreadCount, setUnreadCount } = useMessagesStore();
+
+  useEffect(() => {
+    if (!profile) return;
+
+    async function fetchUnread() {
+      const { data: matters } = await supabase.from('matters').select('id').eq('client_id', profile!.id);
+      const matterIds = (matters ?? []).map((m: any) => m.id);
+      let count = 0;
+      if (matterIds.length) {
+        const { count: c } = await supabase.from('messages').select('id', { count: 'exact', head: true }).in('matter_id', matterIds).neq('sender_id', profile!.id).is('read_at', null);
+        count += c ?? 0;
+      }
+      const { count: firmCount } = await supabase.from('messages').select('id', { count: 'exact', head: true }).is('matter_id', null).eq('client_id', profile!.id).neq('sender_id', profile!.id).is('read_at', null);
+      count += firmCount ?? 0;
+      setUnreadCount(count);
+    }
+
+    fetchUnread();
+    const channel = supabase.channel('tabs-msg-badge')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, fetchUnread)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, fetchUnread)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile]);
+
   return (
     <Tabs
       screenOptions={{
@@ -60,6 +91,8 @@ export default function TabsLayout() {
         name="messages"
         options={{
           title: 'Messages',
+          tabBarBadge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : unreadCount) : undefined,
+          tabBarBadgeStyle: { backgroundColor: colors.burgundy, fontSize: 10 },
           tabBarIcon: ({ focused }) => (
             <TabIcon focused={focused}>
               <MsgIcon color={focused ? colors.burgundy : colors.inkTertiary} />

@@ -6,6 +6,7 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/auth';
+import { useMessagesStore } from '../../store/messages';
 import { colors } from '../../lib/colors';
 import Svg, { Path } from 'react-native-svg';
 
@@ -22,6 +23,7 @@ interface Convo {
 
 export default function MessagesScreen() {
   const { profile } = useAuthStore();
+  const setUnreadCount = useMessagesStore((s) => s.setUnreadCount);
   const [firm, setFirm] = useState<Convo | null>(null);
   const [cases, setCases] = useState<Convo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +80,7 @@ export default function MessagesScreen() {
     setRefreshing(false);
   }, [profile]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => { load(); setUnreadCount(0); }, [load]));
 
   if (loading) {
     return (

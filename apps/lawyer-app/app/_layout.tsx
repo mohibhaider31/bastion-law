@@ -48,7 +48,10 @@ function RootLayout() {
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="matter/[id]" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="client/[id]" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="security" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="profile" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </>
   );

@@ -272,7 +272,19 @@ export default function CaseDetailScreen() {
             {/* Team */}
             <Text style={styles.blockLabel}>YOUR LEGAL TEAM</Text>
             <View style={styles.teamCard}>
-              {team.length === 0 && <Text style={styles.mutedText}>No lawyers assigned yet.</Text>}
+              {team.length === 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={[styles.teamAvatar, { backgroundColor: '#F6ECD8' }]}>
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#9A6B1E" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <Path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 3a4 4 0 100 8 4 4 0 000-8z" />
+                    </Svg>
+                  </View>
+                  <View>
+                    <Text style={[styles.teamName, { color: '#9A6B1E' }]}>Lawyer being assigned</Text>
+                    <Text style={styles.teamRole}>You'll be notified when assigned</Text>
+                  </View>
+                </View>
+              )}
               {team.map((m) => (
                 <View key={m.id} style={styles.teamRow}>
                   <View style={styles.teamAvatar}><Text style={styles.teamAvatarText}>{initials(m.full_name)}</Text></View>

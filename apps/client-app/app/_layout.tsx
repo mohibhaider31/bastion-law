@@ -64,6 +64,7 @@ function RootLayout() {
         <Stack.Screen name="firm-chat" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="notifications" options={{ animation: 'slide_from_right' }} />
         <Stack.Screen name="support" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="profile" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </>
   );

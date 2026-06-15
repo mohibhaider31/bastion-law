@@ -98,7 +98,7 @@ export default function ClientsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.burgundy} />}
       >
         {filtered.map((client) => (
-          <TouchableOpacity key={client.id} style={styles.clientCard} onPress={() => client.matter_id && router.push(`/matter/${client.matter_id}`)} activeOpacity={0.85}>
+          <TouchableOpacity key={client.id} style={styles.clientCard} onPress={() => router.push(`/client/${client.id}`)} activeOpacity={0.85}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{client.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2)}</Text>
             </View>

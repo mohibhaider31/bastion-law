@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   SafeAreaView, ActivityIndicator, RefreshControl,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { router } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/auth';
@@ -26,6 +27,7 @@ const COLUMNS = [
   { key: 'hearing',       label: 'In Progress',    color: colors.burgundy    },
   { key: 'judgment',      label: 'Judgment',       color: colors.green       },
 ];
+const COLUMN_KEYS = COLUMNS.map((c) => c.key);
 
 export default function BoardScreen() {
   const { profile } = useAuthStore();
@@ -47,6 +49,23 @@ export default function BoardScreen() {
     setLoading(false); setRefreshing(false);
   }
 
+  async function advanceStage(matterId: string, currentStage: string) {
+    const idx = COLUMN_KEYS.indexOf(currentStage);
+    if (idx < 0 || idx >= COLUMN_KEYS.length - 1) return;
+    const nextStage = COLUMN_KEYS[idx + 1];
+    const matter = matters.find((m) => m.id === matterId);
+    await supabase.from('matters').update({ stage: nextStage }).eq('id', matterId);
+    setMatters((prev) => prev.map((m) => m.id === matterId ? { ...m, stage: nextStage } : m));
+    if (profile && matter) {
+      await supabase.from('audit_logs').insert({ matter_id: matterId, actor_id: profile.id, actor_type: 'lawyer', action: `Stage advanced: ${currentStage} → ${nextStage}` });
+      const { data: m } = await supabase.from('matters').select('client_id, title, matter_ref').eq('id', matterId).single();
+      if (m?.client_id) {
+        const LABELS: Record<string, string> = { intake: 'Intake', documentation: 'Documentation', filing: 'Filing', hearing: 'In Progress', judgment: 'Judgment', closed: 'Closed' };
+        await supabase.from('notifications').insert({ user_id: m.client_id, type: 'case_update', title: `Matter update: ${m.matter_ref}`, body: `Your matter has progressed to the ${LABELS[nextStage] ?? nextStage} stage.`, matter_id: matterId });
+      }
+    }
+  }
+
   if (loading) return (
     <SafeAreaView style={[styles.root, { justifyContent: 'center', alignItems: 'center' }]}>
       <ActivityIndicator color={colors.burgundy} />
@@ -57,6 +76,7 @@ export default function BoardScreen() {
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
         <Text style={styles.title}>Work Board</Text>
+        <Text style={styles.subtitle}>{matters.length} active matter{matters.length !== 1 ? 's' : ''}</Text>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.board}>
         {COLUMNS.map((col) => {
@@ -70,7 +90,9 @@ export default function BoardScreen() {
                 </View>
               </View>
               <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
-                {colMatters.map((m) => <MatterCard key={m.id} matter={m} />)}
+                {colMatters.map((m) => (
+                  <MatterCard key={m.id} matter={m} onAdvance={advanceStage} isLastStage={COLUMN_KEYS.indexOf(m.stage) >= COLUMN_KEYS.length - 1} />
+                ))}
                 {colMatters.length === 0 && <View style={styles.emptyCol}><Text style={styles.emptyColText}>—</Text></View>}
               </ScrollView>
             </View>
@@ -81,7 +103,7 @@ export default function BoardScreen() {
   );
 }
 
-function MatterCard({ matter }: { matter: Matter }) {
+function MatterCard({ matter, onAdvance, isLastStage }: { matter: Matter; onAdvance: (id: string, stage: string) => void; isLastStage: boolean }) {
   const nextEvent = matter.events.sort((a, b) => a.event_date.localeCompare(b.event_date)).find((e) => e.event_date >= new Date().toISOString().split('T')[0]);
   const daysUntil = nextEvent ? Math.ceil((new Date(nextEvent.event_date).getTime() - Date.now()) / 86400000) : null;
   const priority = daysUntil !== null && daysUntil <= 3 ? 'high' : daysUntil !== null && daysUntil <= 14 ? 'medium' : 'normal';
@@ -97,13 +119,27 @@ function MatterCard({ matter }: { matter: Matter }) {
         </View>
         <Text style={styles.clientName} numberOfLines={1}>{matter.client.full_name}</Text>
       </View>
-      {nextEvent && (
-        <View style={[styles.dueBadge, priority === 'high' && styles.dueBadgeHigh, priority === 'medium' && styles.dueBadgeMed]}>
-          <Text style={[styles.dueBadgeText, priority === 'high' && styles.dueBadgeTextHigh, priority === 'medium' && styles.dueBadgeTextMed]}>
-            {daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil}d`}
-          </Text>
-        </View>
-      )}
+      <View style={styles.cardFooter}>
+        {nextEvent ? (
+          <View style={[styles.dueBadge, priority === 'high' && styles.dueBadgeHigh, priority === 'medium' && styles.dueBadgeMed]}>
+            <Text style={[styles.dueBadgeText, priority === 'high' && styles.dueBadgeTextHigh, priority === 'medium' && styles.dueBadgeTextMed]}>
+              {daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil}d`}
+            </Text>
+          </View>
+        ) : <View />}
+        {!isLastStage && (
+          <TouchableOpacity
+            style={styles.advanceBtn}
+            onPress={(e) => { e.stopPropagation?.(); onAdvance(matter.id, matter.stage); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={colors.burgundy} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <Path d="M5 12h14M12 5l7 7-7 7" />
+            </Svg>
+            <Text style={styles.advanceBtnText}>Next</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </TouchableOpacity>
   );
 }
@@ -112,6 +148,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#E7E5E1' },
   header: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12 },
   title: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 24, color: colors.ink },
+  subtitle: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: colors.inkSecondary, marginTop: 2 },
   board: { paddingHorizontal: 16, paddingBottom: 40, gap: 10, alignItems: 'flex-start' },
   column: { width: 230, backgroundColor: colors.card, borderRadius: 16, padding: 12, maxHeight: 620 },
   colHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
@@ -133,4 +170,7 @@ const styles = StyleSheet.create({
   dueBadgeText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 10, color: colors.inkSecondary },
   dueBadgeTextHigh: { color: colors.red },
   dueBadgeTextMed: { color: colors.amber },
+  cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  advanceBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: colors.roseTint, borderWidth: 1, borderColor: colors.roseBg },
+  advanceBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 10, color: colors.burgundy },
 });

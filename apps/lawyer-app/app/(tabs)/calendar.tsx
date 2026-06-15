@@ -64,10 +64,19 @@ export default function CalendarScreen() {
 
   async function respondAppt(id: string, status: 'confirmed' | 'rejected') {
     const appt = appointments.find((a) => a.id === id);
-    await supabase.from('appointments').update({ status, confirmed_at: status === 'confirmed' ? new Date().toISOString() : null }).eq('id', id);
+    const videoRoomUrl = (status === 'confirmed' && appt?.type === 'video')
+      ? `https://meet.jit.si/bastion-${id.replace(/-/g, '').slice(0, 16)}`
+      : null;
+    const update: Record<string, unknown> = { status, confirmed_at: status === 'confirmed' ? new Date().toISOString() : null };
+    if (videoRoomUrl) update.video_room_url = videoRoomUrl;
+    await supabase.from('appointments').update(update).eq('id', id);
     setApptStatuses((prev) => ({ ...prev, [id]: status }));
     if (appt && status === 'confirmed') {
+      await supabase.from('notifications').insert({ user_id: appt.client_id, type: 'appointment_confirmed', title: 'Appointment confirmed', body: `${fmtDT(appt.proposed_at)} has been confirmed by your lawyer.`, matter_id: appt.matter_id });
       dispatchPush(appt.client_id, 'Appointment confirmed', `${fmtDT(appt.proposed_at)} — confirmed by your lawyer.`, { screen: 'schedule' });
+    } else if (appt && status === 'rejected') {
+      await supabase.from('notifications').insert({ user_id: appt.client_id, type: 'appointment_cancelled', title: 'Appointment declined', body: 'Your appointment request has been declined. Please propose a new time.', matter_id: appt.matter_id });
+      dispatchPush(appt.client_id, 'Appointment declined', 'Your lawyer declined. Please propose a new time.', { screen: 'schedule' });
     }
   }
 

@@ -107,10 +107,11 @@ export default function ScheduleScreen() {
         dispatchPush(appt.lawyer_id, profile.full_name, `Proposed a new meeting time: ${fmtDateTime(proposedAt.toISOString())}`, { screen: 'calendar' });
       }
     } else {
-      const { data: matters } = await supabase.from('matters').select('id, lead_lawyer_id').eq('client_id', profile.id).eq('status', 'active').single();
-      if (matters) {
+      const { data: matterRows } = await supabase.from('matters').select('id, lead_lawyer_id').eq('client_id', profile.id).eq('status', 'active').order('opened_at', { ascending: false }).limit(1);
+      const matter = matterRows?.[0];
+      if (matter && matter.lead_lawyer_id) {
         await supabase.from('appointments').insert({
-          matter_id: matters.id, client_id: profile.id, lawyer_id: matters.lead_lawyer_id,
+          matter_id: matter.id, client_id: profile.id, lawyer_id: matter.lead_lawyer_id,
           type: meetingType, proposed_at: proposedAt.toISOString(), agenda: agenda || null, proposed_by: profile.id,
         });
       }

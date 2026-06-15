@@ -7,9 +7,12 @@ import { Plus, CheckCircle, Clock, AlertCircle, Download } from 'lucide-react';
 interface Invoice {
   id: string; invoice_ref: string; status: string; amount_paisas: number;
   due_date: string; paid_at: string | null; created_at: string;
+  client_id: string;
   client: { full_name: string };
   matter: { matter_ref: string } | null;
 }
+
+interface MatterLawyerRate { matter_id: string; lawyer_name: string; hourly_rate_pkr: number | null; }
 
 interface Expense {
   id: string; category: string; description: string; amount_pkr: number;
@@ -43,14 +46,42 @@ export default function BillingPage() {
   const [lineItems, setLineItems] = useState([{ description: '', quantity: '1', unit_pkr: '' }]);
   const [saving, setSaving] = useState(false);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [matterRate, setMatterRate] = useState<MatterLawyerRate | null>(null);
+  const [batchModal, setBatchModal] = useState(false);
+  const [batchMatters, setBatchMatters] = useState<{ id: string; matter_ref: string; title: string; client_id: string; client_name: string; unbilled_hours: number; hourly_rate: number | null; suggested_pkr: number }[]>([]);
+  const [batchDueDate, setBatchDueDate] = useState('');
+  const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
+  const [batchRunning, setBatchRunning] = useState(false);
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (!form.matter_id) { setMatterRate(null); return; }
+    (async () => {
+      const { data: m } = await supabase
+        .from('matters')
+        .select('lead_lawyer_id, lead_lawyer:profiles!lead_lawyer_id(full_name, hourly_rate_pkr)')
+        .eq('id', form.matter_id)
+        .single();
+      if (!m || !m.lead_lawyer_id) { setMatterRate(null); return; }
+      const lawyer = m.lead_lawyer as unknown as { full_name: string; hourly_rate_pkr: number | null };
+      setMatterRate({ matter_id: form.matter_id, lawyer_name: lawyer.full_name, hourly_rate_pkr: lawyer.hourly_rate_pkr });
+    })();
+  }, [form.matter_id]);
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) setProfile({ id: user.id });
+
+    // Mark overdue: sent/outstanding invoices whose due_date has passed
+    const today = new Date().toISOString().split('T')[0];
+    await supabase.from('invoices')
+      .update({ status: 'overdue' })
+      .in('status', ['sent', 'outstanding'])
+      .lt('due_date', today);
+
     const [invRes, clRes, matRes, expRes] = await Promise.all([
-      supabase.from('invoices').select('id, invoice_ref, status, amount_paisas, due_date, paid_at, created_at, client:profiles!client_id(full_name), matter:matters(matter_ref)').order('created_at', { ascending: false }),
+      supabase.from('invoices').select('id, invoice_ref, status, amount_paisas, due_date, paid_at, created_at, client_id, client:profiles!client_id(full_name), matter:matters(matter_ref)').order('created_at', { ascending: false }),
       supabase.from('profiles').select('id, full_name').eq('role', 'client'),
       supabase.from('matters').select('id, matter_ref, title').eq('status', 'active'),
       supabase.from('expenses').select('id, category, description, amount_pkr, expense_date, billable, matter:matters(matter_ref, title), logger:profiles!logged_by(full_name)').order('expense_date', { ascending: false }).limit(50),
@@ -73,7 +104,7 @@ export default function BillingPage() {
       invoice_ref: ref, client_id: form.client_id,
       matter_id: form.matter_id || null, status: 'sent',
       amount_paisas: Math.round(totalPaisas), due_date: form.due_date,
-      notes: form.notes || null, created_by: profile.id,
+      notes: form.notes || null, created_by: profile.id, issued_by: profile.id,
     }).select('id').single();
 
     if (inv) {
@@ -135,7 +166,69 @@ export default function BillingPage() {
     setSaving(false); setModal(false);
     setForm({ client_id: '', matter_id: '', due_date: '', notes: '' });
     setLineItems([{ description: '', quantity: '1', unit_pkr: '' }]);
+    setMatterRate(null);
     load();
+  }
+
+  async function openBatchModal() {
+    // Load active matters with unbilled time entries
+    const { data: mattersData } = await supabase.from('matters').select('id, matter_ref, title, client_id, client:profiles!client_id(full_name), lead_lawyer:profiles!lead_lawyer_id(full_name, hourly_rate_pkr)').eq('status', 'active');
+    if (!mattersData) return;
+    const matterIds = mattersData.map((m: any) => m.id);
+    const { data: timeData } = await supabase.from('time_entries').select('matter_id, hours, billed, lawyer:profiles!lawyer_id(hourly_rate_pkr)').in('matter_id', matterIds).eq('billed', false);
+    const hoursMap = new Map<string, number>();
+    for (const te of (timeData ?? []) as any[]) {
+      hoursMap.set(te.matter_id, (hoursMap.get(te.matter_id) ?? 0) + te.hours);
+    }
+    const result = (mattersData as any[]).filter((m) => (hoursMap.get(m.id) ?? 0) > 0).map((m) => {
+      const rate = m.lead_lawyer?.hourly_rate_pkr ?? null;
+      const hrs = hoursMap.get(m.id) ?? 0;
+      return { id: m.id, matter_ref: m.matter_ref, title: m.title, client_id: m.client_id, client_name: m.client?.full_name ?? '', unbilled_hours: hrs, hourly_rate: rate, suggested_pkr: rate ? Math.round(hrs * rate) : 0 };
+    });
+    setBatchMatters(result);
+    setBatchSelected(new Set(result.filter((m) => m.suggested_pkr > 0).map((m) => m.id)));
+    const nextMonth = new Date(); nextMonth.setMonth(nextMonth.getMonth() + 1); nextMonth.setDate(1);
+    setBatchDueDate(nextMonth.toISOString().split('T')[0]);
+    setBatchModal(true);
+  }
+
+  async function runBatchInvoice() {
+    if (!profile || batchSelected.size === 0 || !batchDueDate) return;
+    setBatchRunning(true);
+    const { count: existing } = await supabase.from('invoices').select('id', { count: 'exact', head: true });
+    let seq = existing ?? 0;
+    for (const m of batchMatters.filter((m) => batchSelected.has(m.id))) {
+      seq++;
+      const ref = `BST-INV-${new Date().getFullYear()}-${String(seq).padStart(4, '0')}`;
+      const amountPaisas = Math.round(m.suggested_pkr * 100);
+      const { data: inv } = await supabase.from('invoices').insert({ invoice_ref: ref, client_id: m.client_id, matter_id: m.id, amount_paisas: amountPaisas, due_date: batchDueDate, status: 'sent', issued_by: profile.id }).select('id').single();
+      if (inv) {
+        await supabase.from('invoice_items').insert({ invoice_id: inv.id, description: `Professional services — ${m.unbilled_hours.toFixed(1)} hours @ PKR ${m.hourly_rate?.toLocaleString('en-PK') ?? 'N/A'}/hr`, quantity: 1, unit_paisas: amountPaisas });
+        // Mark time entries as billed
+        await supabase.from('time_entries').update({ billed: true }).eq('matter_id', m.id).eq('billed', false);
+        // Notify client
+        await supabase.from('notifications').insert({ user_id: m.client_id, type: 'invoice_sent', title: `New invoice ${ref}`, body: `PKR ${(m.suggested_pkr).toLocaleString('en-PK')} due by ${batchDueDate}.`, matter_id: m.id });
+      }
+    }
+    setBatchRunning(false);
+    setBatchModal(false);
+    load();
+  }
+
+  async function resendInvoice(inv: Invoice) {
+    const clientProfile = await supabase.from('profiles').select('email, full_name').eq('id', inv.client_id ?? '').single().then((r) => r.data);
+    if (!clientProfile?.email) return;
+    const { data: items } = await supabase.from('invoice_items').select('description, quantity, unit_paisas').eq('invoice_id', inv.id);
+    const total = (items ?? []).reduce((s: number, li: any) => s + li.quantity * li.unit_paisas, 0);
+    const amountPkr = (total / 100).toLocaleString('en-PK');
+    await fetch('/api/send-email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        template_slug: 'invoice', to_email: clientProfile.email, to_name: clientProfile.full_name,
+        vars: { client_name: clientProfile.full_name, invoice_ref: inv.invoice_ref, matter_ref: inv.matter?.matter_ref ?? '', amount_pkr: `PKR ${amountPkr}`, due_date: inv.due_date },
+      }),
+    }).catch(() => {});
+    await supabase.from('notifications').insert({ user_id: inv.client_id, type: 'invoice_sent', title: `Invoice reminder: ${inv.invoice_ref}`, body: `PKR ${amountPkr} is due by ${inv.due_date}.` });
   }
 
   async function markPaid(id: string) {
@@ -208,14 +301,19 @@ export default function BillingPage() {
     doc.save(`${inv.invoice_ref}.pdf`);
   }
 
-  const totalOutstanding = invoices.filter((i) => i.status === 'outstanding' || i.status === 'sent').reduce((s, i) => s + i.amount_paisas, 0);
+  const totalOutstanding = invoices.filter((i) => i.status === 'outstanding' || i.status === 'sent' || i.status === 'overdue').reduce((s, i) => s + i.amount_paisas, 0);
   const totalPaid = invoices.filter((i) => i.status === 'paid').reduce((s, i) => s + i.amount_paisas, 0);
 
   return (
     <PageShell title="Billing & Invoices" action={
-      <button onClick={() => setModal(true)} className="flex items-center gap-2 bg-[#6B1E2B] text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#4A141E] transition-colors">
-        <Plus size={16} /> New Invoice
-      </button>
+      <div className="flex gap-3">
+        <button onClick={openBatchModal} className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#ECE4D9] text-sm font-semibold text-[#6E635F] hover:bg-[#F6F1EA] transition-colors">
+          <Plus size={16} /> Batch Invoice
+        </button>
+        <button onClick={() => setModal(true)} className="flex items-center gap-2 bg-[#6B1E2B] text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#4A141E] transition-colors">
+          <Plus size={16} /> New Invoice
+        </button>
+      </div>
     }>
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
@@ -259,8 +357,11 @@ export default function BillingPage() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        {(inv.status === 'outstanding' || inv.status === 'sent') && (
-                          <button onClick={() => markPaid(inv.id)} className="text-xs font-semibold text-[#3F7A5B] hover:underline">Mark paid</button>
+                        {(inv.status === 'outstanding' || inv.status === 'sent' || inv.status === 'overdue') && (
+                          <>
+                            <button onClick={() => markPaid(inv.id)} className="text-xs font-semibold text-[#3F7A5B] hover:underline">Mark paid</button>
+                            <button onClick={() => resendInvoice(inv)} className="text-xs font-semibold text-[#9A6B1E] hover:underline">Resend</button>
+                          </>
                         )}
                         <button onClick={() => downloadPDF(inv)} className="flex items-center gap-1 text-xs text-[#A89F99] hover:text-[#6B1E2B] transition-colors">
                           <Download size={12} /> PDF
@@ -338,6 +439,21 @@ export default function BillingPage() {
               </div>
             </div>
 
+            {/* Rate hint from assigned lawyer */}
+            {matterRate?.hourly_rate_pkr && (
+              <div className="flex items-center justify-between bg-[#F6ECD8] rounded-xl px-4 py-2.5 mb-4">
+                <span className="text-xs text-[#9A6B1E]">
+                  {matterRate.lawyer_name} · PKR {matterRate.hourly_rate_pkr.toLocaleString('en-PK')}/hr
+                </span>
+                <button
+                  className="text-xs font-semibold text-[#6B1E2B] hover:underline"
+                  onClick={() => setLineItems((prev) => [...prev, { description: `Legal fees — ${matterRate.lawyer_name}`, quantity: '1', unit_pkr: matterRate.hourly_rate_pkr!.toString() }])}
+                >
+                  + Add as line item
+                </button>
+              </div>
+            )}
+
             {/* Line items */}
             <p className="text-[10px] font-semibold text-[#8A817B] tracking-widest mb-3">LINE ITEMS</p>
             {lineItems.map((li, i) => (
@@ -355,10 +471,55 @@ export default function BillingPage() {
             </div>
 
             <div className="flex gap-3">
-              <button onClick={() => setModal(false)} className="flex-1 h-11 rounded-xl border border-[#ECE4D9] text-[#6E635F] text-sm font-medium hover:bg-[#F6F1EA] transition-colors">Cancel</button>
+              <button onClick={() => { setModal(false); setMatterRate(null); }} className="flex-1 h-11 rounded-xl border border-[#ECE4D9] text-[#6E635F] text-sm font-medium hover:bg-[#F6F1EA] transition-colors">Cancel</button>
               <button onClick={createInvoice} disabled={saving || !form.client_id || !form.due_date}
                 className="flex-1 h-11 rounded-xl bg-[#6B1E2B] text-white text-sm font-semibold hover:bg-[#4A141E] transition-colors disabled:opacity-60">
                 {saving ? 'Creating…' : 'Create Invoice'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Batch Invoice Modal */}
+      {batchModal && (
+        <div className="fixed inset-0 bg-[rgba(28,21,18,0.5)] flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#ECE4D9]">
+              <h3 className="text-base font-semibold text-[#241D1C]">Batch Invoice — Unbilled Time</h3>
+              <p className="text-xs text-[#A89F99] mt-0.5">Invoices will be generated for selected matters based on unbilled hours × lawyer rate</p>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              <div className="mb-5">
+                <label className="block text-[10px] font-medium text-[#8A817B] tracking-widest mb-2">DUE DATE FOR ALL INVOICES</label>
+                <input type="date" className="h-11 border border-[#ECE4D9] rounded-xl px-4 bg-[#F6F1EA] text-[#241D1C] text-sm outline-none focus:border-[#6B1E2B]" value={batchDueDate} onChange={(e) => setBatchDueDate(e.target.value)} />
+              </div>
+              {batchMatters.length === 0 ? (
+                <p className="text-sm text-[#A89F99] text-center py-8">No active matters with unbilled time entries found.</p>
+              ) : (
+                <div className="space-y-2">
+                  {batchMatters.map((m) => (
+                    <label key={m.id} className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-colors ${batchSelected.has(m.id) ? 'border-[#6B1E2B] bg-[#FBF1EE]' : 'border-[#ECE4D9] bg-white hover:bg-[#F6F1EA]'}`}>
+                      <input type="checkbox" checked={batchSelected.has(m.id)} onChange={(e) => setBatchSelected((prev) => { const n = new Set(prev); e.target.checked ? n.add(m.id) : n.delete(m.id); return n; })} className="accent-[#6B1E2B]" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-[#241D1C] truncate">{m.title}</p>
+                        <p className="text-xs text-[#A89F99]">{m.matter_ref} · {m.client_name} · {m.unbilled_hours.toFixed(1)}h unbilled</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        {m.suggested_pkr > 0 ? (
+                          <p className="text-sm font-bold text-[#241D1C]">PKR {m.suggested_pkr.toLocaleString('en-PK')}</p>
+                        ) : (
+                          <p className="text-xs text-[#A89F99]">Rate not set</p>
+                        )}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 px-6 py-4 border-t border-[#ECE4D9]">
+              <button onClick={() => setBatchModal(false)} className="flex-1 h-11 rounded-xl border border-[#ECE4D9] text-[#6E635F] text-sm font-medium hover:bg-[#F6F1EA] transition-colors">Cancel</button>
+              <button onClick={runBatchInvoice} disabled={batchRunning || batchSelected.size === 0 || !batchDueDate} className="flex-1 h-11 rounded-xl bg-[#6B1E2B] text-white text-sm font-semibold hover:bg-[#4A141E] disabled:opacity-60 transition-colors">
+                {batchRunning ? 'Generating…' : `Generate ${batchSelected.size} Invoice${batchSelected.size !== 1 ? 's' : ''}`}
               </button>
             </div>
           </div>

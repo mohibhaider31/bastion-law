@@ -8,7 +8,7 @@ interface Client {
   id: string;
   full_name: string;
   email: string;
-  matters: { id: string; ref: string; title: string; stage: string }[];
+  matters: { id: string; matter_ref: string; title: string; stage: string }[];
   last_email: string | null;
 }
 
@@ -80,13 +80,13 @@ export default function EmailsPage() {
     // Fetch matters per client
     const mattersRes = await supabase
       .from('matters')
-      .select('id, ref, title, stage, client_id')
+      .select('id, matter_ref, title, stage, client_id')
       .in('client_id', profileList.map(p => p.id));
 
     const mattersByClient: Record<string, Client['matters']> = {};
-    for (const m of mattersRes.data ?? []) {
+    for (const m of (mattersRes.data ?? []) as any[]) {
       if (!mattersByClient[m.client_id]) mattersByClient[m.client_id] = [];
-      mattersByClient[m.client_id].push({ id: m.id, ref: m.ref, title: m.title, stage: m.stage });
+      mattersByClient[m.client_id].push({ id: m.id, matter_ref: m.matter_ref, title: m.title, stage: m.stage });
     }
 
     // Last email per client
@@ -126,7 +126,7 @@ export default function EmailsPage() {
     const vars: Record<string, string> = {
       client_name: client.full_name,
       client_email: client.email,
-      matter_ref:   matter?.ref ?? '',
+      matter_ref:   matter?.matter_ref ?? '',
       matter_type:  matter?.title ?? '',
       lawyer_name:  '',
       ...formVars,
@@ -215,7 +215,7 @@ export default function EmailsPage() {
                       <p className="text-xs text-[#8A817B] truncate">{client.email}</p>
                       {client.matters.length > 0 && (
                         <p className="text-xs text-[#A89F99] mt-0.5">
-                          {client.matters.length} matter{client.matters.length !== 1 ? 's' : ''} · {client.matters[0].ref}
+                          {client.matters.length} matter{client.matters.length !== 1 ? 's' : ''} · {client.matters[0].matter_ref}
                         </p>
                       )}
                     </div>

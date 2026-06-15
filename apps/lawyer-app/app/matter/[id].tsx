@@ -17,9 +17,9 @@ const TASK_TYPES = ['document', 'payment', 'signature', 'review', 'meeting', 'ge
 type TaskType = typeof TASK_TYPES[number];
 
 export default function MatterDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const { profile } = useAuthStore();
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>((tabParam as Tab) || 'overview');
   const [matter, setMatter] = useState<any>(null);
   const [team, setTeam] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
@@ -113,6 +113,13 @@ export default function MatterDetailScreen() {
   useEffect(() => () => { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); }, []);
 
   useEffect(() => { if (id && profile) load(); }, [id, profile]);
+
+  useEffect(() => {
+    if (tabParam === 'chat') {
+      setTab('chat');
+      setTimeout(() => { markChatRead(); msgScrollRef.current?.scrollToEnd({ animated: false }); }, 300);
+    }
+  }, [tabParam]);
 
   // Realtime chat subscription — refetch with joins on INSERT
   useFocusEffect(useCallback(() => {
@@ -268,6 +275,22 @@ export default function MatterDetailScreen() {
   async function verifyDoc(docId: string) {
     await supabase.from('documents').update({ status: 'verified' }).eq('id', docId);
     await supabase.from('audit_logs').insert({ matter_id: id, actor_id: profile?.id, actor_type: 'lawyer', action: 'Document verified', metadata: { document_id: docId } });
+    const doc = docs.find((d: any) => d.id === docId);
+    const { data: m } = await supabase.from('matters').select('client_id').eq('id', id).single();
+    if (m?.client_id && doc) {
+      await supabase.from('notifications').insert({ user_id: m.client_id, type: 'document', title: 'Document verified', body: `"${doc.name}" has been reviewed and verified.`, matter_id: id });
+    }
+    load();
+  }
+
+  async function rejectDoc(docId: string) {
+    await supabase.from('documents').update({ status: 'rejected' }).eq('id', docId);
+    await supabase.from('audit_logs').insert({ matter_id: id, actor_id: profile?.id, actor_type: 'lawyer', action: 'Document rejected', metadata: { document_id: docId } });
+    const doc = docs.find((d: any) => d.id === docId);
+    const { data: m } = await supabase.from('matters').select('client_id').eq('id', id).single();
+    if (m?.client_id && doc) {
+      await supabase.from('notifications').insert({ user_id: m.client_id, type: 'document', title: 'Document needs resubmission', body: `"${doc.name}" requires correction. Please re-upload an updated version.`, matter_id: id });
+    }
     load();
   }
 
@@ -411,9 +434,14 @@ export default function MatterDetailScreen() {
                     </TouchableOpacity>
                   )}
                   {(doc.status === 'under_review' || doc.status === 'signed') && (
-                    <TouchableOpacity style={[styles.verifyBtn, doc.status === 'signed' && { backgroundColor: colors.roseTint, borderColor: colors.burgundy }]} onPress={() => verifyDoc(doc.id)}>
-                      <Text style={[styles.verifyBtnText, doc.status === 'signed' && { color: colors.burgundy }]}>{doc.status === 'signed' ? 'Accept sign' : 'Verify'}</Text>
-                    </TouchableOpacity>
+                    <>
+                      <TouchableOpacity style={[styles.verifyBtn, doc.status === 'signed' && { backgroundColor: colors.roseTint, borderColor: colors.burgundy }]} onPress={() => verifyDoc(doc.id)}>
+                        <Text style={[styles.verifyBtnText, doc.status === 'signed' && { color: colors.burgundy }]}>{doc.status === 'signed' ? 'Accept sign' : 'Verify'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.verifyBtn, { backgroundColor: colors.redBg, borderColor: colors.red }]} onPress={() => rejectDoc(doc.id)}>
+                        <Text style={[styles.verifyBtnText, { color: colors.red }]}>Reject</Text>
+                      </TouchableOpacity>
+                    </>
                   )}
                 </View>
               </View>
@@ -807,7 +835,7 @@ export default function MatterDetailScreen() {
 
 function roleColor(r: string) { return r === 'opposing_counsel' ? '#C0392B' : r === 'judge' ? '#6B1E2B' : r === 'witness' ? '#9A6B1E' : r === 'expert' ? '#1A5276' : '#6E635F'; }
 function evColor(t: string) { return t === 'hearing' ? colors.amber : t === 'deadline' ? colors.red : colors.burgundy; }
-function docColor(s: string) { return s === 'verified' ? colors.green : s === 'signed' ? colors.burgundy : s === 'under_review' ? colors.amber : s === 'requested' ? colors.red : colors.inkTertiary; }
+function docColor(s: string) { return s === 'verified' ? colors.green : s === 'signed' ? colors.burgundy : s === 'under_review' ? colors.amber : s === 'rejected' ? colors.red : s === 'requested' ? colors.inkSecondary : colors.inkTertiary; }
 function actorColor(t: string) { return t === 'lawyer' ? colors.burgundy : t === 'client' ? colors.brass : t === 'system' ? colors.inkTertiary : colors.green; }
 function actorBg(t: string) { return t === 'lawyer' ? colors.roseTint : t === 'client' ? colors.amberBg : colors.borderLight; }
 function fmtDate(iso: string) { return new Date(iso).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' }); }

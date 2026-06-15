@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  SafeAreaView, ActivityIndicator, RefreshControl,
+  SafeAreaView, ActivityIndicator, RefreshControl, Modal, Pressable, TextInput,
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '../../lib/supabase';
@@ -52,6 +52,22 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [escalated, setEscalated] = useState<Set<string>>(new Set());
+  const [myMatters, setMyMatters] = useState<{ id: string; matter_ref: string; title: string }[]>([]);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+
+  // Quick Log Time modal
+  const [logModal, setLogModal] = useState(false);
+  const [logMatterId, setLogMatterId] = useState('');
+  const [logHours, setLogHours] = useState('');
+  const [logDesc, setLogDesc] = useState('');
+  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
+  const [savingLog, setSavingLog] = useState(false);
+
+  // Quick Add Note modal
+  const [noteModal, setNoteModal] = useState(false);
+  const [noteMatterId, setNoteMatterId] = useState('');
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => { if (profile) load(); }, [profile]);
 
@@ -65,7 +81,8 @@ export default function DashboardScreen() {
       .eq('lead_lawyer_id', profile.id)
       .eq('status', 'active');
 
-    const matterIds = myMatters?.map((m) => m.id) ?? [];
+    const matterIds = myMatters?.map((m: any) => m.id) ?? [];
+    setMyMatters((myMatters ?? []).map((m: any) => ({ id: m.id, matter_ref: m.matter_ref, title: m.title })));
     const today = new Date().toISOString().split('T')[0];
 
     const [docsRes, eventsRes, msgsRes] = await Promise.all([
@@ -124,7 +141,49 @@ export default function DashboardScreen() {
       unreadMessages: slaItems.length,
       todayEvents: (eventsRes.data?.length ?? 0),
     });
+
+    if (profile) {
+      const { count } = await supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('user_id', profile.id).is('read_at', null);
+      setUnreadNotifs(count ?? 0);
+    }
+
     setLoading(false); setRefreshing(false);
+  }
+
+  async function saveTimeLog() {
+    if (!profile || !logMatterId || !logHours) return;
+    const hours = parseFloat(logHours);
+    if (isNaN(hours) || hours <= 0) return;
+    setSavingLog(true);
+    await supabase.from('time_entries').insert({
+      matter_id: logMatterId, lawyer_id: profile.id,
+      hours, description: logDesc.trim() || 'Billable time',
+      entry_date: logDate, billable: true,
+    });
+    await supabase.from('audit_logs').insert({
+      matter_id: logMatterId, actor_id: profile.id, actor_type: 'lawyer',
+      action: `Time logged: ${hours}h — ${logDesc.trim() || 'Billable time'}`,
+    });
+    setSavingLog(false);
+    setLogModal(false);
+    setLogMatterId(''); setLogHours(''); setLogDesc('');
+    setLogDate(new Date().toISOString().split('T')[0]);
+  }
+
+  async function saveNote() {
+    if (!profile || !noteMatterId || !noteText.trim()) return;
+    setSavingNote(true);
+    await supabase.from('matter_notes').insert({
+      matter_id: noteMatterId, author_id: profile.id,
+      content: noteText.trim(), visible_to_client: false,
+    });
+    await supabase.from('audit_logs').insert({
+      matter_id: noteMatterId, actor_id: profile.id, actor_type: 'lawyer',
+      action: 'Note added via mobile app',
+    });
+    setSavingNote(false);
+    setNoteModal(false);
+    setNoteMatterId(''); setNoteText('');
   }
 
   function handleEscalate(id: string) {
@@ -151,9 +210,17 @@ export default function DashboardScreen() {
             <Text style={styles.greeting}>Good {tod()}, {profile?.full_name.split(' ')[0]}.</Text>
             <Text style={styles.date}>{new Date().toLocaleDateString('en-PK', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
           </View>
-          <TouchableOpacity style={styles.logoMark} onPress={() => router.push('/security')}>
-            <Text style={styles.logoText}>B</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => router.push('/notifications')}>
+              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={colors.inkSecondary} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <Path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+              </Svg>
+              {unreadNotifs > 0 && <View style={styles.notifBadge}><Text style={styles.notifBadgeText}>{unreadNotifs > 9 ? '9+' : unreadNotifs}</Text></View>}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.logoMark} onPress={() => router.push('/profile')}>
+              <Text style={styles.logoText}>{profile?.full_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2) ?? 'B'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Stats row */}
@@ -163,6 +230,22 @@ export default function DashboardScreen() {
           <StatCard label="SLA ALERTS" value={slaQueue.length} alert={slaQueue.length > 0} />
           <StatCard label="TODAY'S EVENTS" value={stats.todayEvents} />
         </ScrollView>
+
+        {/* Quick Actions */}
+        <View style={styles.quickRow}>
+          <TouchableOpacity style={styles.quickBtn} onPress={() => { setLogDate(new Date().toISOString().split('T')[0]); setLogModal(true); }}>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={colors.burgundy} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <Circle cx="12" cy="12" r="10" /><Line x1="12" y1="8" x2="12" y2="12" /><Line x1="12" y1="16" x2="12.01" y2="16" />
+            </Svg>
+            <Text style={styles.quickBtnText}>Log Time</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickBtn} onPress={() => setNoteModal(true)}>
+            <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={colors.burgundy} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><Path d="M14 2v6h6M12 18v-6M9 15h6" />
+            </Svg>
+            <Text style={styles.quickBtnText}>Add Note</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* SLA Escalation Queue */}
         {slaQueue.length > 0 && (
@@ -245,6 +328,79 @@ export default function DashboardScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Log Time Modal */}
+      <Modal visible={logModal} transparent animationType="slide" onRequestClose={() => setLogModal(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setLogModal(false)} />
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
+          <Text style={styles.sheetTitle}>Log Time</Text>
+
+          <Text style={styles.fieldLabel}>MATTER</Text>
+          {myMatters.length === 0 ? (
+            <Text style={styles.mutedSmall}>No active matters.</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+              {myMatters.map((m) => (
+                <TouchableOpacity key={m.id} onPress={() => setLogMatterId(m.id)}
+                  style={[styles.matterChip, logMatterId === m.id && styles.matterChipActive]}>
+                  <Text style={[styles.matterChipText, logMatterId === m.id && styles.matterChipTextActive]} numberOfLines={1}>{m.matter_ref}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          <Text style={styles.fieldLabel}>HOURS</Text>
+          <TextInput style={styles.input} value={logHours} onChangeText={setLogHours} placeholder="e.g. 1.5" keyboardType="decimal-pad" placeholderTextColor={colors.inkTertiary} />
+
+          <Text style={styles.fieldLabel}>DESCRIPTION</Text>
+          <TextInput style={styles.input} value={logDesc} onChangeText={setLogDesc} placeholder="e.g. Client call, research, drafting…" placeholderTextColor={colors.inkTertiary} />
+
+          <Text style={styles.fieldLabel}>DATE (YYYY-MM-DD)</Text>
+          <TextInput style={styles.input} value={logDate} onChangeText={setLogDate} placeholder={new Date().toISOString().split('T')[0]} placeholderTextColor={colors.inkTertiary} />
+
+          <TouchableOpacity style={[styles.saveBtn, (!logMatterId || !logHours || savingLog) && { opacity: 0.5 }]} onPress={saveTimeLog} disabled={!logMatterId || !logHours || savingLog}>
+            {savingLog ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Save Entry</Text>}
+          </TouchableOpacity>
+        </View>
+      </Modal>
+      {/* Add Note Modal */}
+      <Modal visible={noteModal} transparent animationType="slide" onRequestClose={() => setNoteModal(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setNoteModal(false)} />
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
+          <Text style={styles.sheetTitle}>Add Note</Text>
+
+          <Text style={styles.fieldLabel}>MATTER</Text>
+          {myMatters.length === 0 ? (
+            <Text style={styles.mutedSmall}>No active matters.</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+              {myMatters.map((m) => (
+                <TouchableOpacity key={m.id} onPress={() => setNoteMatterId(m.id)}
+                  style={[styles.matterChip, noteMatterId === m.id && styles.matterChipActive]}>
+                  <Text style={[styles.matterChipText, noteMatterId === m.id && styles.matterChipTextActive]} numberOfLines={1}>{m.matter_ref}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          <Text style={styles.fieldLabel}>NOTE (INTERNAL — NOT VISIBLE TO CLIENT)</Text>
+          <TextInput
+            style={[styles.input, { height: 110, textAlignVertical: 'top', paddingTop: 12 }]}
+            value={noteText} onChangeText={setNoteText}
+            placeholder="Key observations, next steps, strategy notes…"
+            placeholderTextColor={colors.inkTertiary}
+            multiline
+          />
+
+          <TouchableOpacity
+            style={[styles.saveBtn, (!noteMatterId || !noteText.trim() || savingNote) && { opacity: 0.5 }]}
+            onPress={saveNote} disabled={!noteMatterId || !noteText.trim() || savingNote}>
+            {savingNote ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Save Note</Text>}
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -284,6 +440,9 @@ const styles = StyleSheet.create({
   date: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: colors.inkSecondary, marginTop: 2 },
   logoMark: { width: 38, height: 38, borderRadius: 10, backgroundColor: colors.burgundy, alignItems: 'center', justifyContent: 'center' },
   logoText: { fontFamily: 'HankenGrotesk_700Bold', fontSize: 18, color: colors.cream },
+  headerBtn: { width: 38, height: 38, borderRadius: 10, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  notifBadge: { position: 'absolute', top: -3, right: -3, backgroundColor: colors.burgundy, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  notifBadgeText: { fontFamily: 'HankenGrotesk_700Bold', fontSize: 9, color: colors.cream },
 
   statsRow: { paddingHorizontal: 20, gap: 10, paddingBottom: 16 },
   statCard: { width: 120, borderRadius: 14, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, padding: 14 },
@@ -335,4 +494,22 @@ const styles = StyleSheet.create({
   eventTime: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 11, color: colors.inkMuted },
   eventTitle: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 14, color: colors.ink },
   eventLoc: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: colors.inkSecondary },
+
+  quickRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 20, marginBottom: 14 },
+  quickBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.roseTint, borderRadius: 14, paddingVertical: 12, borderWidth: 1, borderColor: colors.roseBg },
+  quickBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 13, color: colors.burgundy },
+
+  backdrop: { flex: 1, backgroundColor: 'rgba(28,21,18,0.55)' },
+  sheet: { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 48 },
+  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginBottom: 20 },
+  sheetTitle: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 18, color: colors.ink, marginBottom: 20 },
+  fieldLabel: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 10, color: colors.inkMuted, letterSpacing: 1.5, marginBottom: 8 },
+  input: { height: 48, borderRadius: 12, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.cream, paddingHorizontal: 14, fontFamily: 'HankenGrotesk_500Medium', fontSize: 14, color: colors.ink, marginBottom: 16 },
+  matterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.border, marginRight: 8 },
+  matterChipActive: { backgroundColor: colors.burgundy, borderColor: colors.burgundy },
+  matterChipText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 12, color: colors.inkSecondary },
+  matterChipTextActive: { color: '#fff' },
+  saveBtn: { height: 54, borderRadius: 14, backgroundColor: colors.burgundy, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  saveBtnText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 15, color: '#fff' },
+  mutedSmall: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 13, color: colors.inkSecondary, marginBottom: 16 },
 });

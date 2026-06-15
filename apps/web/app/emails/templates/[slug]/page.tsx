@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '../../../../lib/supabase';
 import { buildEmailHtml, replaceVars, TEMPLATE_VARIABLES, type FirmSettings } from '../../../../lib/email';
-import { ArrowLeft, Save, RefreshCw, Monitor, Info } from 'lucide-react';
+import { ArrowLeft, Save, RefreshCw, Monitor, Info, Send, CheckCircle } from 'lucide-react';
 
 const DEFAULT_SETTINGS: FirmSettings = {
   from_email:    'noreply@bastionlaw.pk',
@@ -47,6 +47,10 @@ export default function TemplateEditorPage() {
   const [saved, setSaved]         = useState(false);
   const [variables, setVariables] = useState<string[]>([]);
   const [showVars, setShowVars]   = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [sendingTest, setSendingTest] = useState(false);
+  const [testSent, setTestSent]   = useState(false);
+  const [showTestInput, setShowTestInput] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -89,6 +93,24 @@ export default function TemplateEditorPage() {
     setTimeout(() => setSaved(false), 2500);
   }
 
+  async function sendTest() {
+    if (!testEmail) return;
+    setSendingTest(true);
+    await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        template_slug: slug,
+        to_email: testEmail,
+        to_name: 'Test Recipient',
+        vars: SAMPLE_VARS,
+      }),
+    });
+    setSendingTest(false);
+    setTestSent(true);
+    setTimeout(() => { setTestSent(false); setShowTestInput(false); }, 3000);
+  }
+
   function insertVar(v: string) {
     setBodyHtml(prev => prev + `{{${v}}}`);
   }
@@ -112,6 +134,32 @@ export default function TemplateEditorPage() {
             }`}>
             <Info size={13} /> Variables
           </button>
+
+          {/* Send test */}
+          {showTestInput ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="email"
+                value={testEmail}
+                onChange={e => setTestEmail(e.target.value)}
+                placeholder="test@example.com"
+                className="border border-[#ECE4D9] rounded-lg px-3 py-2 text-xs bg-[#F6F1EA] focus:outline-none focus:border-[#6B1E2B] w-48"
+                onKeyDown={e => e.key === 'Enter' && sendTest()}
+              />
+              <button onClick={sendTest} disabled={sendingTest || !testEmail}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#3F7A5B] text-white text-xs font-medium hover:bg-[#2D5C44] transition-colors disabled:opacity-60">
+                {sendingTest ? <RefreshCw size={12} className="animate-spin" /> : testSent ? <CheckCircle size={12} /> : <Send size={12} />}
+                {testSent ? 'Sent!' : 'Send'}
+              </button>
+              <button onClick={() => setShowTestInput(false)} className="text-xs text-[#A89F99] hover:text-[#6E635F]">✕</button>
+            </div>
+          ) : (
+            <button onClick={() => setShowTestInput(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#ECE4D9] text-[#6E635F] text-xs font-medium hover:bg-[#F6F1EA] transition-colors">
+              <Send size={13} /> Send Test
+            </button>
+          )}
+
           <button onClick={save} disabled={saving}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#6B1E2B] text-white text-sm font-medium hover:bg-[#4A141E] transition-colors disabled:opacity-60">
             {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}

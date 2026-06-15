@@ -19,7 +19,7 @@ interface Doc {
   id: string;
   name: string;
   category: string;
-  status: 'requested' | 'uploading' | 'under_review' | 'verified';
+  status: 'requested' | 'uploading' | 'under_review' | 'verified' | 'rejected' | 'uploaded' | 'signed';
   due_date: string | null;
   requires_esign: boolean;
   matter_id: string;
@@ -58,8 +58,9 @@ export default function DocumentsScreen() {
 
   const filtered = filter === 'all' ? docs : docs.filter((d) => d.category === filter);
   const needsAction = filtered.filter((d) => d.status === 'requested');
+  const rejected = filtered.filter((d) => d.status === 'rejected');
   const inReview = filtered.filter((d) => d.status === 'under_review' || d.status === 'uploading');
-  const verified = filtered.filter((d) => d.status === 'verified');
+  const verified = filtered.filter((d) => d.status === 'verified' || d.status === 'uploaded' || d.status === 'signed');
 
   async function handleUpload(docId: string, source: 'camera' | 'library' | 'files') {
     setCameraModal(null);
@@ -143,6 +144,15 @@ export default function DocumentsScreen() {
           </Section>
         )}
 
+        {/* Rejected — needs re-upload */}
+        {rejected.length > 0 && (
+          <Section label="NEEDS RESUBMISSION" labelColor={colors.red}>
+            {rejected.map((doc) => (
+              <DocRow key={doc.id} doc={doc} uploading={uploading[doc.id]} onUpload={() => setCameraModal(doc.id)} />
+            ))}
+          </Section>
+        )}
+
         {/* Under review */}
         {inReview.length > 0 && (
           <Section label="UNDER REVIEW" labelColor={colors.amber}>
@@ -218,14 +228,19 @@ async function openDoc(url: string) {
 }
 
 function DocRow({ doc, uploading, onUpload }: { doc: Doc; uploading?: number; onUpload?: () => void }) {
-  const isVerified = doc.status === 'verified';
+  const isVerified = doc.status === 'verified' || doc.status === 'uploaded' || doc.status === 'signed';
   const isReview = doc.status === 'under_review' || doc.status === 'uploading';
+  const isRejected = doc.status === 'rejected';
   return (
     <View style={styles.docRow}>
-      <View style={[styles.docIcon, isVerified && styles.docIconGreen, isReview && styles.docIconAmber]}>
+      <View style={[styles.docIcon, isVerified && styles.docIconGreen, isReview && styles.docIconAmber, isRejected && styles.docIconRed]}>
         {isVerified ? (
           <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={colors.green} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
             <Path d="M20 6L9 17l-5-5" />
+          </Svg>
+        ) : isRejected ? (
+          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={colors.red} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <Path d="M18 6L6 18M6 6l12 12" />
           </Svg>
         ) : (
           <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={isReview ? colors.amber : colors.burgundy} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -244,6 +259,9 @@ function DocRow({ doc, uploading, onUpload }: { doc: Doc; uploading?: number; on
         {isReview && doc.status !== 'uploading' && (
           <Text style={[styles.docStatus, { color: colors.amber }]}>Under review</Text>
         )}
+        {isRejected && (
+          <Text style={[styles.docStatus, { color: colors.red }]}>Needs correction — please re-upload</Text>
+        )}
       </View>
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         {doc.file_url && (
@@ -251,9 +269,9 @@ function DocRow({ doc, uploading, onUpload }: { doc: Doc; uploading?: number; on
             <Text style={styles.viewBtnText}>View</Text>
           </TouchableOpacity>
         )}
-        {doc.status === 'requested' && onUpload && (
-          <TouchableOpacity style={styles.uploadBtn} onPress={onUpload}>
-            <Text style={styles.uploadBtnText}>{doc.requires_esign ? 'Sign' : 'Upload'}</Text>
+        {(doc.status === 'requested' || isRejected) && onUpload && (
+          <TouchableOpacity style={[styles.uploadBtn, isRejected && { backgroundColor: colors.redBg, borderColor: colors.red }]} onPress={onUpload}>
+            <Text style={[styles.uploadBtnText, isRejected && { color: colors.red }]}>{doc.requires_esign ? 'Sign' : 'Upload'}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -283,6 +301,7 @@ const styles = StyleSheet.create({
   docIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: colors.roseTint, alignItems: 'center', justifyContent: 'center' },
   docIconGreen: { backgroundColor: colors.greenBg },
   docIconAmber: { backgroundColor: colors.amberBg },
+  docIconRed: { backgroundColor: colors.redBg },
   docInfo: { flex: 1 },
   docName: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 14, color: colors.ink },
   docDue: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: colors.amber, marginTop: 2 },

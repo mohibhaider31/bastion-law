@@ -135,12 +135,14 @@ function CaseCard({ matter, closed }: { matter: MatterRow; closed?: boolean }) {
 
       {/* Lawyer */}
       <View style={styles.lawyerRow}>
-        <View style={styles.lawyerAvatar}>
-          <Text style={styles.lawyerAvatarText}>{initials(matter.lead_lawyer?.full_name)}</Text>
+        <View style={[styles.lawyerAvatar, !matter.lead_lawyer && styles.lawyerAvatarTba]}>
+          <Text style={styles.lawyerAvatarText}>{matter.lead_lawyer ? initials(matter.lead_lawyer.full_name) : '?'}</Text>
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.lawyerLabel}>LEAD LAWYER</Text>
-          <Text style={styles.lawyerName}>{matter.lead_lawyer?.full_name ?? 'To be assigned'}</Text>
+          <Text style={[styles.lawyerName, !matter.lead_lawyer && styles.lawyerNameTba]}>
+            {matter.lead_lawyer?.full_name ?? 'Lawyer TBA'}
+          </Text>
         </View>
         {matter.open_actions > 0 && (
           <View style={styles.actionBadge}>
@@ -193,6 +195,8 @@ const styles = StyleSheet.create({
   lawyerAvatarText: { fontFamily: 'HankenGrotesk_700Bold', fontSize: 13, color: colors.burgundy },
   lawyerLabel: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 8, color: colors.inkMuted, letterSpacing: 1.2 },
   lawyerName: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 14, color: colors.ink },
+  lawyerAvatarTba: { backgroundColor: '#F6ECD8' },
+  lawyerNameTba: { color: '#9A6B1E' },
   actionBadge: { backgroundColor: colors.amberBg, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   actionBadgeText: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 11, color: colors.amber },
 

@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, Acti
 import { router } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { colors } from '../lib/colors';
-import Svg, { Path, Circle } from 'react-native-svg';
+import Svg, { Path, Circle, Rect } from 'react-native-svg';
 
 interface Factor { id: string; friendly_name: string | null; status: string; }
 
@@ -140,8 +140,6 @@ export default function SecurityScreen() {
     </SafeAreaView>
   );
 }
-
-import { Rect } from 'react-native-svg';
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.cream },

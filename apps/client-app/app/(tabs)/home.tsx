@@ -16,6 +16,7 @@ interface Matter {
   stage: string;
   status: string;
   cause_no: string | null;
+  lead_lawyer: { full_name: string } | null;
 }
 
 interface Document {
@@ -49,7 +50,7 @@ export default function HomeScreen() {
   async function fetchData() {
     if (!profile) return;
     const [mattersRes, docsRes, msgsRes, notifsRes] = await Promise.all([
-      supabase.from('matters').select('id, matter_ref, title, stage, status, cause_no').eq('client_id', profile.id).eq('status', 'active').order('opened_at', { ascending: false }),
+      supabase.from('matters').select('id, matter_ref, title, stage, status, cause_no, lead_lawyer:profiles!lead_lawyer_id(full_name)').eq('client_id', profile.id).eq('status', 'active').order('opened_at', { ascending: false }),
       supabase.from('documents').select('id, name, due_date, requires_esign, matter_id').in('status', ['requested']).order('due_date', { ascending: true }).limit(5),
       supabase.from('messages').select('id, body, created_at, sender:profiles!sender_id(full_name), matter_id').order('created_at', { ascending: false }).limit(1),
       supabase.from('notifications').select('id, read_at').eq('user_id', profile.id).is('read_at', null),
@@ -109,12 +110,6 @@ export default function HomeScreen() {
             <Text style={styles.logoWord}>BASTION</Text>
           </View>
           <View style={styles.headerIcons}>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/support')}>
-              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={colors.inkSecondary} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-                <Circle cx="12" cy="12" r="10" />
-                <Path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" />
-              </Svg>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/notifications')}>
               <View style={styles.bellWrap}>
                 <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={colors.inkSecondary} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -122,6 +117,9 @@ export default function HomeScreen() {
                 </Svg>
                 {unreadCount > 0 && <View style={styles.bellBadge} />}
               </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.avatarBtn} onPress={() => router.push('/profile')}>
+              <Text style={styles.avatarBtnText}>{profile?.full_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2) ?? '?'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -148,6 +146,14 @@ export default function HomeScreen() {
             {primaryMatter.cause_no && (
               <Text style={styles.heroCause}>Cause No. {primaryMatter.cause_no}</Text>
             )}
+            <View style={styles.heroLawyerRow}>
+              <Svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="rgba(246,241,234,0.5)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <Path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 3a4 4 0 100 8 4 4 0 000-8z" />
+              </Svg>
+              <Text style={[styles.heroLawyerText, !primaryMatter.lead_lawyer && styles.heroLawyerTba]}>
+                {primaryMatter.lead_lawyer ? primaryMatter.lead_lawyer.full_name : 'Lawyer being assigned…'}
+              </Text>
+            </View>
 
             {/* Progress bar */}
             <View style={styles.progressRow}>
@@ -274,7 +280,10 @@ const styles = StyleSheet.create({
   statusPill: { backgroundColor: 'rgba(246,241,234,0.14)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(246,241,234,0.22)' },
   statusPillText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 9, color: colors.cream, letterSpacing: 1.2 },
   heroTitle: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 18, color: colors.cream, lineHeight: 24, marginBottom: 6 },
-  heroCause: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: 'rgba(246,241,234,0.6)', marginBottom: 16 },
+  heroCause: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: 'rgba(246,241,234,0.6)', marginBottom: 8 },
+  heroLawyerRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
+  heroLawyerText: { fontFamily: 'HankenGrotesk_500Medium', fontSize: 12, color: 'rgba(246,241,234,0.7)' },
+  heroLawyerTba: { color: 'rgba(246,241,234,0.4)', fontStyle: 'italic' },
   progressRow: { flexDirection: 'row', marginBottom: 6 },
   progressSeg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: 'rgba(246,241,234,0.18)' },
   progressFilled: { backgroundColor: colors.brassLight },
@@ -312,4 +321,6 @@ const styles = StyleSheet.create({
   updateTime: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: colors.inkTertiary, marginTop: 1 },
   updateBody: { fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: colors.inkSecondary, lineHeight: 20, marginBottom: 10 },
   updateLink: { fontFamily: 'HankenGrotesk_600SemiBold', fontSize: 13, color: colors.burgundy },
+  avatarBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.roseTint, alignItems: 'center', justifyContent: 'center' },
+  avatarBtnText: { fontFamily: 'HankenGrotesk_700Bold', fontSize: 13, color: colors.burgundy },
 });

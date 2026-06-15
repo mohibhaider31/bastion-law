@@ -2,12 +2,12 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { PageShell } from '../dashboard/page';
-import { TrendingUp, TrendingDown, DollarSign, Briefcase, Clock, AlertTriangle } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Briefcase, Clock, AlertTriangle, Download } from 'lucide-react';
 
 interface MonthRevenue { month: string; collected: number; billed: number; }
 interface LawyerUtil { id: string; full_name: string; hours: number; matters: number; }
 interface MatterFunnel { status: string; count: number; }
-interface OverdueInvoice { id: string; invoice_ref: string; client_name: string; amount_pkr: number; due_date: string; days_overdue: number; }
+interface OverdueInvoice { id: string; invoice_ref: string; client_name: string; amount_paisas: number; due_date: string; days_overdue: number; }
 
 export default function AnalyticsPage() {
   const [revenue, setRevenue] = useState<MonthRevenue[]>([]);
@@ -23,10 +23,10 @@ export default function AnalyticsPage() {
     const sixMonthsAgo = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0];
 
     const [invoicesRes, lawyersRes, mattersRes, overdueRes, timeRes] = await Promise.all([
-      supabase.from('invoices').select('amount_pkr, paid_at, due_date, status, issued_at').gte('issued_at', sixMonthsAgo),
+      supabase.from('invoices').select('amount_paisas, paid_at, due_date, status, issued_at').gte('issued_at', sixMonthsAgo),
       supabase.from('profiles').select('id, full_name').eq('role', 'lawyer'),
       supabase.from('matters').select('id, status'),
-      supabase.from('invoices').select('id, invoice_ref, amount_pkr, due_date, client:profiles!client_id(full_name)').eq('status', 'overdue').order('due_date'),
+      supabase.from('invoices').select('id, invoice_ref, amount_paisas, due_date, client:profiles!client_id(full_name)').eq('status', 'overdue').order('due_date'),
       supabase.from('time_entries').select('lawyer_id, hours, matter_id'),
     ]);
 
@@ -41,8 +41,8 @@ export default function AnalyticsPage() {
     for (const inv of (invoicesRes.data ?? []) as any[]) {
       const mo = (inv.issued_at as string).slice(0, 7);
       if (monthMap.has(mo)) {
-        monthMap.get(mo)!.billed += inv.amount_pkr;
-        if (inv.status === 'paid') monthMap.get(mo)!.collected += inv.amount_pkr;
+        monthMap.get(mo)!.billed += inv.amount_paisas;
+        if (inv.status === 'paid') monthMap.get(mo)!.collected += inv.amount_paisas;
       }
     }
     const revenueData: MonthRevenue[] = Array.from(monthMap.entries()).map(([month, v]) => ({
@@ -78,7 +78,7 @@ export default function AnalyticsPage() {
       id: inv.id,
       invoice_ref: inv.invoice_ref,
       client_name: inv.client?.full_name ?? 'Unknown',
-      amount_pkr: inv.amount_pkr,
+      amount_paisas: inv.amount_paisas,
       due_date: inv.due_date,
       days_overdue: Math.floor((Date.now() - new Date(inv.due_date).getTime()) / 86400000),
     }));
@@ -101,10 +101,38 @@ export default function AnalyticsPage() {
   const maxBilled = Math.max(...revenue.map((r) => r.billed), 1);
   const maxFunnel = Math.max(...funnel.map((f) => f.count), 1);
   const maxHours = Math.max(...lawyers.map((l) => l.hours), 1);
-  const overdueTotal = overdue.reduce((s, o) => s + o.amount_pkr, 0);
+  const overdueTotal = overdue.reduce((s, o) => s + o.amount_paisas, 0);
+
+  function exportCSV() {
+    const rows: string[][] = [
+      ['Report Type', 'Month / Name', 'Billed (PKR)', 'Collected (PKR)', 'Collection Rate'],
+      ...revenue.map((r) => [
+        'Monthly Revenue', r.month,
+        String(r.billed / 100),
+        String(r.collected / 100),
+        r.billed > 0 ? `${Math.round((r.collected / r.billed) * 100)}%` : '0%',
+      ]),
+      [],
+      ['Report Type', 'Lawyer', 'Total Hours', 'Matters'],
+      ...lawyers.map((l) => ['Lawyer Utilization', l.full_name, String(l.hours), String(l.matters)]),
+      [],
+      ['Report Type', 'Invoice Ref', 'Client', 'Amount (PKR)', 'Due Date', 'Days Overdue'],
+      ...overdue.map((inv) => ['Overdue Invoice', inv.invoice_ref, inv.client_name, String(inv.amount_paisas / 100), inv.due_date, String(inv.days_overdue)]),
+    ];
+    const csv = rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `bastion-analytics-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }
 
   return (
-    <PageShell title="Analytics">
+    <PageShell title="Analytics" action={
+      <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[#ECE4D9] text-sm font-medium text-[#6E635F] hover:bg-[#F6F1EA] transition-colors">
+        <Download size={15} /> Export CSV
+      </button>
+    }>
       {/* KPI row */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <KpiCard label="6-MONTH BILLED" value={fmtPkr(totalBilled)} icon={DollarSign} />
@@ -203,7 +231,7 @@ export default function AnalyticsPage() {
                   <p className="text-xs text-[#A89F99]">{inv.invoice_ref} · due {fmtDate(inv.due_date)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-bold text-[#C0392B]">{fmtPkr(inv.amount_pkr)}</p>
+                  <p className="text-sm font-bold text-[#C0392B]">{fmtPkr(inv.amount_paisas)}</p>
                   <p className="text-xs text-[#C0392B]">{inv.days_overdue}d overdue</p>
                 </div>
               </div>

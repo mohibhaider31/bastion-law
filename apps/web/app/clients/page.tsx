@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
 import { PageShell } from '../../components/PageShell';
 import { Plus, Search, Phone, Mail, Briefcase } from 'lucide-react';
@@ -7,6 +8,7 @@ import { Plus, Search, Phone, Mail, Briefcase } from 'lucide-react';
 interface Client { id: string; full_name: string; email: string; phone: string | null; matter_count: number; created_at: string; }
 
 export default function ClientsPage() {
+  const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -68,7 +70,7 @@ export default function ClientsPage() {
             </tr></thead>
             <tbody>
               {filtered.map((c) => (
-                <tr key={c.id} className="border-b border-[#F3EDE3] hover:bg-[#FBF1EE] transition-colors">
+                <tr key={c.id} onClick={() => router.push(`/clients/${c.id}`)} className="border-b border-[#F3EDE3] hover:bg-[#FBF1EE] transition-colors cursor-pointer">
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-full bg-[#F0E3E1] flex items-center justify-center flex-shrink-0">
