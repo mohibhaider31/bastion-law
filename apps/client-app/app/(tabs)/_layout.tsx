@@ -36,6 +36,8 @@ export default function TabsLayout() {
     }
 
     fetchUnread();
+    const existing = supabase.getChannels().find((c: any) => c.topic === 'realtime:tabs-msg-badge');
+    if (existing) supabase.removeChannel(existing);
     const channel = supabase.channel('tabs-msg-badge')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, fetchUnread)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, fetchUnread)
